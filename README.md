@@ -24,6 +24,29 @@ Open the app, set a username, and create a survival world. You start with an emp
 | Hotbar | 1–9 | Tap slots |
 | Commands | T or / | Pause → chat |
 
+## Deploy on Cloudflare
+
+This repo is a **Cloudflare Worker + static assets** app. In the Workers project (the Deployments screen you already have), set:
+
+| Field | Value |
+| --- | --- |
+| **Build command** | `npm run build` |
+| **Deploy command** | `npx wrangler deploy` |
+| **Root directory** | `/` |
+| **Version command** | leave blank (or `npx wrangler versions upload`) |
+
+Do **not** leave Build command as `None` — Cloudflare has to compile the game before Wrangler can upload it.
+
+Then hit **Retry build**. After it succeeds, the game is at your `*.workers.dev` URL (HTTPS, which WebGL and multiplayer need).
+
+Local:
+
+```bash
+npm install
+npm run dev      # http://localhost:8080
+npm run deploy   # build + wrangler deploy
+```
+
 ## Features
 
 - Chunked voxel world with 20+ overworld biomes, the Nether, and the End
@@ -35,12 +58,10 @@ Open the app, set a username, and create a survival world. You start with an emp
 - Mobs, Void Wyrm boss, and the Pale One (appears after 4 minutes AFK)
 - Skin studio with copy/paste JSON
 - P2P multiplayer lobbies with optional XP prices
-- Deep settings: video, controls, sound, gameplay, HUD (graphics presets, FOV, brightness, camera, difficulty, screen shake, and more)
+- Deep settings: video, controls, sound, gameplay, HUD
 
 ## Stack
 
-HTML, TypeScript, React, Three.js, Tailwind. World data is JSON-friendly and stored in IndexedDB.
+HTML, TypeScript, React, Three.js, Tailwind, Cloudflare Workers. Worlds save in the browser (IndexedDB).
 
 Cheats (if enabled on the world): `/give`, `/gamemode`, `/time`, `/fly`, `/god`, `/heal`, `/home`, `/seed`, `/xp`, `/stronghold`, `/weather`, `/difficulty`.
-
-GitHub: [gooomboo/mine-or-craft](https://github.com/gooomboo/mine-or-craft)
