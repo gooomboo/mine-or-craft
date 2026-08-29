@@ -156,7 +156,7 @@ export interface Settings {
 }
 
 export const DEFAULT_SETTINGS: Settings = {
-  renderDistance: 5,
+  renderDistance: 4,
   fov: 75,
   mouseSens: 0.22,
   invertY: false,

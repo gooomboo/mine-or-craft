@@ -186,6 +186,9 @@ export class World {
       g.setAttribute("color", new THREE.BufferAttribute(built.col, 3));
       g.setIndex(new THREE.BufferAttribute(built.idx, 1));
       g.computeBoundingSphere();
+      if (!g.boundingSphere || !Number.isFinite(g.boundingSphere.radius)) {
+        g.boundingSphere = new THREE.Sphere(new THREE.Vector3(8, 48, 8), 64);
+      }
       ch.mesh = new THREE.Mesh(g, this.solidMat);
       ch.mesh.position.set(ox, 0, oz);
       ch.mesh.castShadow = this.shadows;

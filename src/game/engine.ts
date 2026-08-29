@@ -13,6 +13,8 @@ import { CHUNK_W, type Dim, type GameMode, type PlayerSave, type Settings, type 
 import { World } from "./world";
 import { useApp, type HudSnap, type Overlay } from "@/store/app-store";
 
+const DAY_LEN = 1200;
+
 export interface EngineHooks {
   onHud: (h: HudSnap) => void;
   onOverlay: (o: Overlay) => void;
@@ -281,7 +283,7 @@ export class Engine {
     if (!this.settings.clouds) return;
     const fancy = this.settings.graphics !== "fast";
     const mat = new THREE.MeshLambertMaterial({ color: 0xf4f7fb, transparent: true, opacity: fancy ? 0.62 : 0.45, depthWrite: false });
-    const n = fancy ? 28 : 12;
+    const n = fancy ? 18 : 10;
     for (let i = 0; i < n; i++) {
       const c = new THREE.Mesh(new THREE.BoxGeometry(10 + Math.random() * 22, 1.1 + Math.random() * 1.4, 7 + Math.random() * 14), mat);
       c.position.set((Math.random() - 0.5) * 220, 88 + Math.random() * 10, (Math.random() - 0.5) * 220);
@@ -334,9 +336,13 @@ export class Engine {
       this.player.x = spawn.x;
       this.player.y = spawn.y;
       this.player.z = spawn.z;
+      this.worldTime = DAY_LEN * 0.28;
     }
     this.world.streamAround(this.player.x, this.player.z, this.settings.renderDistance, this.dim);
     for (let i = 0; i < 24; i++) this.world.processBuilds(12, this.settings.ao);
+    if (!save) {
+      this.player.y = this.world.highestSolid(this.player.x, this.player.z) + 2;
+    }
     this.applyDimVisuals();
     this.running = true;
     this.last = performance.now();
@@ -893,8 +899,9 @@ export class Engine {
 
   isNight() {
     if (this.dim !== "overworld") return this.dim === "end";
-    const t = (this.worldTime / 24) % 1;
-    return t > 0.52 && t < 0.95;
+    const t = (this.worldTime / DAY_LEN) % 1;
+    const sunH = Math.sin(t * Math.PI * 2 - Math.PI / 2);
+    return sunH < 0.08;
   }
 
   private burst(x: number, y: number, z: number, color: number) {
@@ -936,7 +943,7 @@ export class Engine {
   }
 
   private render(dt: number) {
-    const day = (this.worldTime / 24) % 1;
+    const day = (this.worldTime / DAY_LEN) % 1;
     const sunA = day * Math.PI * 2 - Math.PI / 2;
     const sunH = Math.sin(sunA);
     const px = this.player.x;
@@ -1198,8 +1205,9 @@ export class Engine {
       return "Teleported.";
     }
     if (c === "/time") {
-      if (p[1] === "night") this.worldTime = 16;
-      else this.worldTime = 0;
+      if (p[1] === "night") this.worldTime = DAY_LEN * 0.78;
+      else if (p[1] === "noon") this.worldTime = DAY_LEN * 0.5;
+      else this.worldTime = DAY_LEN * 0.28;
       return "Time set.";
     }
     if (c === "/fly") {
