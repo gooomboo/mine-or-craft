@@ -2,6 +2,8 @@
 
 A browser voxel sandbox. Mine, craft, survive, and explore generated worlds with friends.
 
+**Play:** [gooomboo.github.io/mine-or-craft](https://gooomboo.github.io/mine-or-craft/)
+
 ## Play
 
 Open the app, set a username, and create a survival world. You start with an empty inventory — punch a tree, craft planks, then a crafting table and tools.
@@ -26,42 +28,25 @@ Open the app, set a username, and create a survival world. You start with an emp
 
 ## Deploy on Cloudflare
 
-This repo is a **Cloudflare Worker + static assets** app. In the Workers project (the Deployments screen you already have), set:
+Use a **Workers** project connected to this repo. On the build settings screen:
 
 | Field | Value |
 | --- | --- |
 | **Build command** | `npm run build` |
 | **Deploy command** | `npx wrangler deploy` |
 | **Root directory** | `/` |
-| **Version command** | leave blank (or `npx wrangler versions upload`) |
+| **Version command** | leave blank |
 
-Do **not** leave Build command as `None` — Cloudflare has to compile the game before Wrangler can upload it.
+Build command must not be `None`. Then **Retry build**.
 
-Then hit **Retry build**. After it succeeds, the game is at your `*.workers.dev` URL (HTTPS, which WebGL and multiplayer need).
-
-Local:
-
-```bash
-npm install
-npm run dev      # http://localhost:8080
-npm run deploy   # build + wrangler deploy
-```
+If you create a **Pages** project instead: framework Vite, build `npm run build`, output directory `dist`.
 
 ## Features
 
 - Chunked voxel world with 20+ overworld biomes, the Nether, and the End
 - 3,200 distinct blocks plus tools, armor, shield, and food
 - Survival, creative, and hardcore
-- Crafting (2×2 + 3×3 table) and a furnace
-- Day/night with a moving sun and moon, water and lava flow, fire spread, nether portals
-- Smooth lighting, fancy water, mining cracks, break particles, weather
-- Mobs, Void Wyrm boss, and the Pale One (appears after 4 minutes AFK)
-- Skin studio with copy/paste JSON
-- P2P multiplayer lobbies with optional XP prices
-- Deep settings: video, controls, sound, gameplay, HUD
+- Crafting, furnace, nether portals, Void Wyrm, the Pale One
+- Skin studio, P2P lobbies, deep settings
 
-## Stack
-
-HTML, TypeScript, React, Three.js, Tailwind, Cloudflare Workers. Worlds save in the browser (IndexedDB).
-
-Cheats (if enabled on the world): `/give`, `/gamemode`, `/time`, `/fly`, `/god`, `/heal`, `/home`, `/seed`, `/xp`, `/stronghold`, `/weather`, `/difficulty`.
+Worlds save in the browser (IndexedDB). Cheats (if enabled): `/give`, `/gamemode`, `/time`, `/fly`, `/god`, `/heal`, `/home`, `/seed`, `/xp`, `/stronghold`, `/weather`, `/difficulty`.
