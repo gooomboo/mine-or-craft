@@ -57,6 +57,7 @@ interface AppState {
   active: WorldMeta | null;
   hud: HudSnap | null;
   loadingMsg: string;
+  loadingPct: number;
   joinCode: string;
   multiplayer: boolean;
   isHost: boolean;
@@ -65,7 +66,7 @@ interface AppState {
   setPhase: (p: Phase) => void;
   setOverlay: (o: Overlay) => void;
   setHud: (h: HudSnap) => void;
-  setLoading: (m: string) => void;
+  setLoading: (m: string, pct?: number) => void;
   setActive: (w: WorldMeta | null) => void;
   refreshWorlds: () => void;
   upsertWorld: (w: WorldMeta) => void;
@@ -95,6 +96,7 @@ export const useApp = create<AppState>((set, get) => ({
   active: null,
   hud: null,
   loadingMsg: "Shaping terrain…",
+  loadingPct: 0,
   joinCode: "",
   multiplayer: false,
   isHost: true,
@@ -103,7 +105,8 @@ export const useApp = create<AppState>((set, get) => ({
   setPhase: (phase) => set({ phase }),
   setOverlay: (overlay) => set({ overlay }),
   setHud: (hud) => set({ hud }),
-  setLoading: (loadingMsg) => set({ loadingMsg }),
+  setLoading: (loadingMsg, loadingPct) =>
+    set({ loadingMsg, loadingPct: loadingPct ?? get().loadingPct }),
   setActive: (active) => set({ active }),
   refreshWorlds: () => set({ worlds: loadWorlds() }),
   upsertWorld: (w) => {

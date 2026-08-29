@@ -21,6 +21,7 @@ export interface EngineHooks {
   onDeath: () => void;
   onWin: () => void;
   onToast: (m: string) => void;
+  onProgress?: (msg: string, pct: number) => void;
 }
 
 export class Engine {
@@ -338,8 +339,20 @@ export class Engine {
       this.player.z = spawn.z;
       this.worldTime = DAY_LEN * 0.28;
     }
-    this.world.streamAround(this.player.x, this.player.z, this.settings.renderDistance, this.dim);
-    for (let i = 0; i < 24; i++) this.world.processBuilds(12, this.settings.ao);
+    this.hooks.onProgress?.("Streaming the crust…", 0.1);
+    await this.world.streamAroundYielding(
+      this.player.x,
+      this.player.z,
+      this.settings.renderDistance,
+      this.dim,
+      this.hooks.onProgress,
+    );
+    const slices = 36;
+    for (let i = 0; i < slices; i++) {
+      this.world.processBuilds(8, this.settings.ao);
+      this.hooks.onProgress?.(`Carving chunks ${i + 1}/${slices}`, 0.5 + 0.5 * ((i + 1) / slices));
+      await new Promise((r) => setTimeout(r, 0));
+    }
     if (!save) {
       this.player.y = this.world.highestSolid(this.player.x, this.player.z) + 2;
     }

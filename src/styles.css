@@ -138,3 +138,323 @@
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
 }
+
+.mc-pano-strip {
+  display: flex;
+  width: 1600%;
+  height: 100%;
+  animation: mc-pano-drift 80s linear infinite;
+  will-change: transform;
+}
+
+.mc-pano-panel {
+  width: 6.25%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.mc-pano-sun {
+  position: absolute;
+  top: 9%;
+  right: 18%;
+  width: 3.4rem;
+  height: 3.4rem;
+  border-radius: 50%;
+  background: #f4e4a4;
+  box-shadow: 0 0 48px #f4e4a4aa;
+}
+
+.mc-pano-moon {
+  display: none;
+  position: absolute;
+  top: 12%;
+  left: 22%;
+  width: 2.6rem;
+  height: 2.6rem;
+  border-radius: 50%;
+  background: #e8eef6;
+  box-shadow: 0 0 28px #c8d4e8aa;
+}
+
+.mc-hill {
+  position: absolute;
+  bottom: 28%;
+  width: 42%;
+  height: 28%;
+  border-radius: 50% 50% 0 0;
+}
+
+.mc-hill-a {
+  left: 6%;
+}
+
+.mc-hill-b {
+  right: 8%;
+  width: 34%;
+  height: 22%;
+}
+
+.mc-pano-ground {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 32%;
+}
+
+.mc-pano-water {
+  display: none;
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  height: 38%;
+}
+
+.mc-tree {
+  position: absolute;
+  bottom: 32%;
+  border-left: 18px solid transparent;
+  border-right: 18px solid transparent;
+  border-bottom: 48px solid #2f6a28;
+}
+
+.mc-tree.t1 {
+  left: 12%;
+  border-bottom-width: 56px;
+}
+
+.mc-tree.t2 {
+  left: 38%;
+  border-left-width: 24px;
+  border-right-width: 24px;
+  border-bottom-width: 72px;
+  border-bottom-color: #245a20;
+}
+
+.mc-tree.t3 {
+  left: 68%;
+  border-bottom-width: 44px;
+}
+
+.mc-trunk {
+  position: absolute;
+  bottom: 32%;
+  width: 7px;
+  height: 18px;
+  background: #5a3a1a;
+}
+
+.mc-trunk.tr1 {
+  left: calc(38% + 20px);
+  height: 22px;
+}
+
+.mc-cactus {
+  display: none;
+  position: absolute;
+  bottom: 32%;
+  width: 10px;
+  height: 38px;
+  background: #3d8f4a;
+  box-shadow: inset 2px 0 0 #2a6a34;
+}
+
+.mc-cactus.c1 {
+  left: 28%;
+}
+
+.mc-cactus.c2 {
+  left: 62%;
+  height: 52px;
+}
+
+.mc-pano-plains {
+  background: linear-gradient(#6aa4d8 0 46%, #b7d98a 46% 58%, #5a8f3c 58% 68%, #6b4f32 68%);
+}
+.mc-pano-plains .mc-hill {
+  background: #4e8a36;
+}
+.mc-pano-plains .mc-pano-ground {
+  background: #6b4f32;
+}
+
+.mc-pano-forest {
+  background: linear-gradient(#5b8fc4 0 44%, #3d7a32 44% 62%, #2a4a1c 62% 70%, #3d2a18 70%);
+}
+.mc-pano-forest .mc-hill {
+  background: #2f6a28;
+}
+.mc-pano-forest .mc-tree {
+  border-bottom-color: #1e4a18;
+}
+.mc-pano-forest .mc-pano-ground {
+  background: #3d2a18;
+}
+
+.mc-pano-desert {
+  background: linear-gradient(#e8c86a 0 52%, #ecd9a0 52% 68%, #c4a15a 68%);
+}
+.mc-pano-desert .mc-hill {
+  background: #e0c078;
+}
+.mc-pano-desert .mc-pano-ground {
+  background: #c4a15a;
+}
+.mc-pano-desert .mc-tree,
+.mc-pano-desert .mc-trunk {
+  display: none;
+}
+.mc-pano-desert .mc-cactus {
+  display: block;
+}
+.mc-pano-desert .mc-pano-sun {
+  background: #fff4c8;
+  box-shadow: 0 0 60px #ffd070cc;
+}
+
+.mc-pano-snow {
+  background: linear-gradient(#9ec4e8 0 48%, #e8eef6 48% 64%, #c8d4e0 64%);
+}
+.mc-pano-snow .mc-hill {
+  background: #f4f7fb;
+}
+.mc-pano-snow .mc-pano-ground {
+  background: #d8e4f0;
+}
+.mc-pano-snow .mc-tree {
+  border-bottom-color: #1a3a28;
+}
+.mc-pano-snow .mc-pano-sun {
+  display: none;
+}
+.mc-pano-snow .mc-pano-moon {
+  display: block;
+}
+
+.mc-pano-ocean {
+  background: linear-gradient(#4a90d9 0 50%, #3a7ca5 50%);
+}
+.mc-pano-ocean .mc-hill {
+  background: #5a8f3c;
+  bottom: 38%;
+  width: 22%;
+  height: 16%;
+}
+.mc-pano-ocean .mc-pano-water {
+  display: block;
+  background: linear-gradient(#2a6a9a 0%, #1a4a6a 100%);
+}
+.mc-pano-ocean .mc-pano-ground {
+  display: none;
+}
+.mc-pano-ocean .mc-tree.t2,
+.mc-pano-ocean .mc-tree.t3,
+.mc-pano-ocean .mc-trunk {
+  display: none;
+}
+
+.mc-pano-mountains {
+  background: linear-gradient(#7aa0c8 0 40%, #8a9098 40% 58%, #5a6068 58% 70%, #3d3428 70%);
+}
+.mc-pano-mountains .mc-hill {
+  background: #c8d4e0;
+  height: 42%;
+  border-radius: 40% 40% 0 0;
+}
+.mc-pano-mountains .mc-pano-ground {
+  background: #4a4034;
+}
+.mc-pano-mountains .mc-tree.t1,
+.mc-pano-mountains .mc-tree.t3 {
+  display: none;
+}
+
+.mc-pano-cherry {
+  background: linear-gradient(#8eb8d8 0 46%, #e8b8c8 46% 58%, #6a9a4a 58% 68%, #5a3a22 68%);
+}
+.mc-pano-cherry .mc-hill {
+  background: #7aaa52;
+}
+.mc-pano-cherry .mc-pano-ground {
+  background: #5a3a22;
+}
+.mc-pano-cherry .mc-tree {
+  border-bottom-color: #e8a0b4;
+}
+.mc-pano-cherry .mc-tree.t2 {
+  border-bottom-color: #f0c0cc;
+}
+
+.mc-pano-swamp {
+  background: linear-gradient(#5a7060 0 46%, #4a6a38 46% 62%, #2a3a20 62%);
+}
+.mc-pano-swamp .mc-hill {
+  background: #3a5a2a;
+}
+.mc-pano-swamp .mc-pano-ground {
+  background: #2a3a20;
+}
+.mc-pano-swamp .mc-pano-water {
+  display: block;
+  height: 22%;
+  background: #2a4a38cc;
+}
+.mc-pano-swamp .mc-tree {
+  border-bottom-color: #1e3a18;
+}
+.mc-pano-swamp .mc-pano-sun {
+  opacity: 0.45;
+}
+
+@keyframes mc-pano-drift {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(-50%);
+  }
+}
+
+.mc-dirt-load {
+  background-color: #2a1c12;
+  background-image:
+    linear-gradient(#00000055, #00000088),
+    repeating-linear-gradient(90deg, #3d2a1a 0 16px, #2a1c12 16px 32px),
+    repeating-linear-gradient(0deg, #3d2a1a 0 16px, #24180e 16px 32px);
+  background-size: auto, 32px 32px, 32px 32px;
+}
+
+.mc-look-pad {
+  position: absolute;
+  top: 5.75rem;
+  right: 0;
+  bottom: 10.75rem;
+  width: 54%;
+  touch-action: none;
+  z-index: 1;
+}
+
+.inv-grid {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 44px));
+  gap: 4px;
+  justify-content: center;
+}
+
+@media (max-width: 420px) {
+  .mc-slot {
+    width: 32px;
+    height: 32px;
+  }
+  .inv-grid {
+    grid-template-columns: repeat(9, 32px);
+    gap: 3px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mc-pano-strip {
+    animation: none;
+  }
+}

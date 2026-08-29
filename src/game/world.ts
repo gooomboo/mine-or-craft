@@ -145,6 +145,47 @@ export class World {
     }
   }
 
+  async streamAroundYielding(
+    px: number,
+    pz: number,
+    radius: number,
+    dim: Dim,
+    onProgress?: (msg: string, pct: number) => void,
+  ) {
+    this.dim = dim;
+    const pcx = worldToChunk(px);
+    const pcz = worldToChunk(pz);
+    this.lastPlayer = { x: px, z: pz };
+    const jobs: [number, number][] = [];
+    for (let dz = -radius; dz <= radius; dz++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        if (dx * dx + dz * dz > radius * radius + 2) continue;
+        jobs.push([pcx + dx, pcz + dz]);
+      }
+    }
+    jobs.sort((a, b) => {
+      const da = (a[0] - pcx) ** 2 + (a[1] - pcz) ** 2;
+      const db = (b[0] - pcx) ** 2 + (b[1] - pcz) ** 2;
+      return da - db;
+    });
+    const needed = new Set(jobs.map(([x, z]) => chunkKey(dim, x, z)));
+    for (const [k, ch] of this.chunks) {
+      if (ch.dim !== dim || !needed.has(k)) {
+        this.unload(ch);
+        this.chunks.delete(k);
+      }
+    }
+    const batch = 3;
+    for (let i = 0; i < jobs.length; i++) {
+      const job = jobs[i]!;
+      this.ensureChunk(job[0], job[1], dim);
+      if (i % batch === batch - 1 || i === jobs.length - 1) {
+        onProgress?.(`Sculpting terrain ${i + 1}/${jobs.length}`, 0.12 + 0.38 * ((i + 1) / jobs.length));
+        await new Promise((r) => setTimeout(r, 0));
+      }
+    }
+  }
+
   processBuilds(budgetMs = 6, useAo = true) {
     const t0 = performance.now();
     this.buildQueue = this.buildQueue.filter((c) => this.chunks.has(chunkKey(c.dim, c.cx, c.cz)) && c.dirty);

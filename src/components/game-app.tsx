@@ -53,7 +53,7 @@ function MenuShell() {
   return (
     <div className="relative flex h-full flex-col">
       <Panorama />
-      <div className="relative z-10 flex min-h-0 flex-1 flex-col">
+      <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-none">
         {phase === "title" && <TitleScreen />}
         {phase === "menu" && <MainMenu />}
         {phase === "worlds" && <WorldSelect />}
@@ -66,31 +66,58 @@ function MenuShell() {
   );
 }
 
+const PANO_BIOMES = ["plains", "forest", "desert", "snow", "ocean", "mountains", "cherry", "swamp"] as const;
+
 function Panorama() {
+  const strip = [...PANO_BIOMES, ...PANO_BIOMES];
   return (
-    <div className="pointer-events-none absolute inset-0 overflow-hidden">
-      <div className="absolute inset-0 bg-gradient-to-b from-[#6aa4d8] via-[#8fbf6a] to-[#5a8f3c]" />
-      <div className="absolute inset-x-0 bottom-0 h-[42%] bg-[#6b4f32]" />
-      <div className="absolute inset-x-0 bottom-[38%] h-8 bg-[#5a8f3c]" />
-      <div className="absolute bottom-[42%] left-[8%] h-40 w-28 bg-[#3d7a32] [clip-path:polygon(50%_0,100%_100%,0_100%)]" />
-      <div className="absolute bottom-[42%] left-[22%] h-56 w-36 bg-[#2f6a28] [clip-path:polygon(50%_0,100%_100%,0_100%)]" />
-      <div className="absolute bottom-[42%] right-[12%] h-48 w-32 bg-[#3d7a32] [clip-path:polygon(50%_0,100%_100%,0_100%)]" />
-      <div className="absolute top-10 right-[18%] size-16 rounded-full bg-[#f4e4a4] shadow-[0_0_40px_#f4e4a4]" />
-      <div className="absolute inset-0 bg-black/25" />
+    <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
+      <div className="mc-pano-strip">
+        {strip.map((id, i) => (
+          <div key={`${id}-${i}`} className={`mc-pano-panel mc-pano-${id}`}>
+            <div className="mc-pano-sun" />
+            <div className="mc-pano-moon" />
+            <div className="mc-hill mc-hill-a" />
+            <div className="mc-hill mc-hill-b" />
+            <span className="mc-trunk tr1" />
+            <span className="mc-tree t1" />
+            <span className="mc-tree t2" />
+            <span className="mc-tree t3" />
+            <span className="mc-cactus c1" />
+            <span className="mc-cactus c2" />
+            <div className="mc-pano-water" />
+            <div className="mc-pano-ground" />
+          </div>
+        ))}
+      </div>
+      <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-black/25 to-black/55" />
     </div>
   );
 }
 
+const SPLASH = [
+  "Punch a tree first.",
+  "Don't dig straight down.",
+  "The Pale One watches.",
+  "Craft a pickaxe.",
+  "Bring a shield at night.",
+  "3,200 blocks to place.",
+  "The Void Wyrm waits.",
+  "Also try the Nether.",
+];
+
 function TitleScreen() {
   const setPhase = useApp((s) => s.setPhase);
   const profile = useApp((s) => s.profile);
+  const splash = SPLASH[Math.floor(Date.now() / 8000) % SPLASH.length]!;
   return (
-    <div className="flex h-full flex-col items-center justify-center px-5 py-8">
+    <div className="flex h-full flex-col items-center justify-center px-5 py-8 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))]">
       <p className="mb-2 text-xs tracking-[0.3em] text-fg/80 uppercase">Brace the wild. Face the night.</p>
       <h1 className="pixel-title text-center text-5xl leading-none text-[#f4efe4] sm:text-7xl">
         MINE
         <span className="block text-[#8fbf4a]">OR CRAFT</span>
       </h1>
+      <p className="mt-3 rotate-[-6deg] text-sm font-medium text-xp">{splash}</p>
       <p className="mt-4 max-w-md text-center text-sm text-fg/80">
         A voxel sandbox. Punch trees. Craft tools. Survive creepers. Hunt the Void Wyrm.
       </p>
@@ -112,7 +139,7 @@ function MainMenu() {
   const setProfile = useApp((s) => s.setProfile);
   const [name, setName] = useState(profile.username);
   return (
-    <div className="mx-auto flex h-full w-full max-w-md flex-col justify-center px-5 py-8">
+    <div className="mx-auto flex h-full w-full max-w-md flex-col justify-center px-5 py-8 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))]">
       <button type="button" onClick={() => setPhase("title")} className="mb-4 flex items-center gap-1 text-sm text-muted">
         <ChevronLeft className="size-4" /> Back
       </button>
@@ -247,7 +274,7 @@ async function bootWorld(meta: WorldMeta, mp = false) {
   store.setPhase("loading");
   store.setOverlay("none");
   store.setNet({ multiplayer: mp, isHost: !mp || store.isHost });
-  store.setLoading("Carving the crust…");
+  store.setLoading("Preparing world…", 0);
 }
 
 function Lobby() {
@@ -456,8 +483,8 @@ function PlayView() {
   const settings = useApp((s) => s.settings);
   const hud = useApp((s) => s.hud);
   const loadingMsg = useApp((s) => s.loadingMsg);
+  const loadingPct = useApp((s) => s.loadingPct);
   const setOverlay = useApp((s) => s.setOverlay);
-  const setPhase = useApp((s) => s.setPhase);
   const setHud = useApp((s) => s.setHud);
 
   useEffect(() => {
@@ -465,7 +492,11 @@ function PlayView() {
     let cancelled = false;
     const canvas = canvasRef.current;
     const boot = async () => {
-      useApp.getState().setLoading("Loading chunks…");
+      const store = useApp.getState();
+      store.setLoading("Opening the world…", 0.04);
+      await new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+      if (cancelled) return;
+      store.setLoading("Painting textures…", 0.08);
       const [save, edits] = await Promise.all([loadPlayer(active.id), loadChunks(active.id)]);
       if (cancelled) return;
       const eng = new Engine(canvas, active, useApp.getState().settings, {
@@ -474,6 +505,7 @@ function PlayView() {
         onDeath: () => setOverlay("dead"),
         onWin: () => setOverlay("credits"),
         onToast: () => {},
+        onProgress: (msg, pct) => useApp.getState().setLoading(msg, pct),
       });
       engineRef = eng;
       window.__moc = eng;
@@ -482,6 +514,7 @@ function PlayView() {
         eng.dispose();
         return;
       }
+      useApp.getState().setLoading("Entering the world…", 1);
       useApp.getState().setPhase("playing");
       useApp.getState().setOverlay("locked");
     };
@@ -508,20 +541,32 @@ function PlayView() {
     setOverlay("none");
   };
 
+  const pct = Math.round(Math.min(100, Math.max(0, loadingPct * 100)));
+
   return (
     <>
       <canvas ref={canvasRef} className="touch-none absolute inset-0 h-full w-full" />
       {phase === "loading" && (
-        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-bg">
-          <h2 className="pixel-title text-3xl">MINE OR CRAFT</h2>
-          <p className="mt-4 text-sm text-muted">{loadingMsg}</p>
+        <div className="mc-dirt-load absolute inset-0 z-40 flex flex-col items-center justify-center px-6">
+          <h2 className="pixel-title text-3xl sm:text-4xl">MINE OR CRAFT</h2>
+          <p className="mt-5 text-center text-sm text-fg/90">{loadingMsg}</p>
+          <div className="mt-4 h-3 w-full max-w-sm border-2 border-black bg-slot-dark">
+            <div className="h-full bg-xp transition-[width] duration-150" style={{ width: `${pct}%` }} />
+          </div>
+          <p className="hud-num mt-2 text-sm text-xp">{pct}%</p>
+          <p className="mt-6 max-w-xs text-center text-xs text-muted">
+            Generating chunks. This can take a few seconds on phones — keep this tab open.
+          </p>
         </div>
       )}
       {phase === "playing" && overlay === "locked" && (
-        <button type="button" onClick={clickToPlay} className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/55">
-          <p className="pixel-title text-3xl">Click to play</p>
-          <p className="mt-2 max-w-sm px-6 text-center text-sm text-muted">
-            WASD move · mouse look · left mine · right place · E inventory · Esc pause
+        <button type="button" onClick={clickToPlay} className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/55 px-5">
+          <p className="pixel-title text-3xl">Tap to play</p>
+          <p className="mt-2 max-w-sm text-center text-sm text-muted">
+            Desktop: WASD · mouse look · left mine · right place · E inventory · Esc pause
+          </p>
+          <p className="mt-1 max-w-sm text-center text-sm text-muted sm:hidden">
+            Phone: left stick to walk · drag the empty right side to look · Mine / Use / Jump on the right · bag and pause up top
           </p>
         </button>
       )}
@@ -545,7 +590,7 @@ function Hud({ hud }: { hud: NonNullable<ReturnType<typeof useApp.getState>["hud
   const scale = settings.guiScale;
   const airBubbles = Math.ceil(Math.max(0, hud.air) / 1);
   return (
-    <div className="pointer-events-none absolute inset-0 z-10" style={{ fontSize: `${scale * 16}px` }}>
+    <div className="pointer-events-none absolute inset-0 z-30" style={{ fontSize: `${scale * 16}px` }}>
       {settings.vignette && (
         <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_55%,#00000055_100%)]" />
       )}
@@ -583,7 +628,7 @@ function Hud({ hud }: { hud: NonNullable<ReturnType<typeof useApp.getState>["hud
       {hud.toast && (
         <p className="absolute top-16 left-1/2 -translate-x-1/2 bg-black/60 px-3 py-1 text-sm">{hud.toast}</p>
       )}
-      <div className="absolute bottom-16 left-1/2 flex w-[min(420px,96%)] -translate-x-1/2 flex-col items-center gap-1 sm:bottom-20">
+      <div className="absolute bottom-16 left-1/2 flex w-[min(420px,96%)] -translate-x-1/2 flex-col items-center gap-1 sm:bottom-20 pb-[env(safe-area-inset-bottom)]">
         {hud.mode !== "creative" && (
           <div className="flex w-full justify-between px-1">
             <div className="flex gap-0.5">
@@ -617,14 +662,19 @@ function Hud({ hud }: { hud: NonNullable<ReturnType<typeof useApp.getState>["hud
           <div className="h-full bg-xp" style={{ width: `${Math.min(100, (hud.xp / (7 + hud.xpLevel * 2)) * 100)}%` }} />
         </div>
         <p className="hud-num -mt-1 text-[10px] text-xp">{hud.xpLevel}</p>
-        <div className="mc-hotbar flex gap-0.5">
+        <div className="mc-hotbar pointer-events-auto flex gap-0.5">
           {hud.inventory.slice(0, 9).map((s, i) => (
-            <div
+            <button
               key={i}
+              type="button"
               className={`mc-slot ${hud.hotbar === i ? "outline outline-2 outline-white" : ""}`}
+              onClick={() => {
+                if (engineRef) engineRef.player.hotbar = i;
+              }}
+              aria-label={`Hotbar ${i + 1}`}
             >
               {s && <ItemIcon id={s.id} count={s.count} />}
-            </div>
+            </button>
           ))}
         </div>
         {hud.selectedName && <p className="text-xs text-fg/90">{hud.selectedName}</p>}
@@ -646,21 +696,24 @@ function Hud({ hud }: { hud: NonNullable<ReturnType<typeof useApp.getState>["hud
           )}
         </p>
       )}
-      <div className="absolute top-2 right-2 pointer-events-auto flex gap-2">
+      <div className="absolute top-2 right-2 pointer-events-auto z-40 flex gap-2 pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)]">
         <button
           type="button"
-          className="mc-btn size-11 p-0"
-          onClick={() => useApp.getState().setOverlay("inventory")}
+          className="mc-btn size-12 p-0 sm:size-11"
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            engineRef?.setOverlay("inventory");
+          }}
           aria-label="Inventory"
         >
           <Box className="mx-auto size-5" />
         </button>
         <button
           type="button"
-          className="mc-btn size-11 p-0"
-          onClick={() => {
+          className="mc-btn size-12 p-0 sm:size-11"
+          onPointerDown={(e) => {
+            e.stopPropagation();
             engineRef?.setOverlay("pause");
-            useApp.getState().setOverlay("pause");
           }}
           aria-label="Pause"
         >
@@ -677,6 +730,7 @@ function MobileControls() {
   const size = useApp((s) => s.settings.touchSize);
 
   const onStick = (e: React.PointerEvent) => {
+    e.stopPropagation();
     const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
     const handler = (ev: PointerEvent) => {
       const dx = (ev.clientX - (r.left + r.width / 2)) / (r.width / 2);
@@ -693,14 +747,17 @@ function MobileControls() {
       if (input) input.touchMove = { x: 0, y: 0 };
       window.removeEventListener("pointermove", handler);
       window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
     };
     window.addEventListener("pointermove", handler);
     window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
     handler(e.nativeEvent);
   };
 
   const onLook = (e: React.PointerEvent) => {
-    let lx = e.clientX, ly = e.clientY;
+    let lx = e.clientX,
+      ly = e.clientY;
     const move = (ev: PointerEvent) => {
       const input = eng()?.input;
       if (!input) return;
@@ -712,80 +769,67 @@ function MobileControls() {
     const up = () => {
       window.removeEventListener("pointermove", move);
       window.removeEventListener("pointerup", up);
+      window.removeEventListener("pointercancel", up);
     };
     window.addEventListener("pointermove", move);
     window.addEventListener("pointerup", up);
+    window.addEventListener("pointercancel", up);
   };
 
-  const stick = 8 * size;
+  const hold = (key: "touchJump" | "touchAttack" | "touchUse" | "touchSneak") => ({
+    onPointerDown: (e: React.PointerEvent) => {
+      e.stopPropagation();
+      const i = eng()?.input;
+      if (i) i[key] = true;
+    },
+    onPointerUp: (e: React.PointerEvent) => {
+      e.stopPropagation();
+      const i = eng()?.input;
+      if (i) i[key] = false;
+    },
+    onPointerCancel: () => {
+      const i = eng()?.input;
+      if (i) i[key] = false;
+    },
+  });
+
+  const stick = 7.2 * size;
   return (
-    <div className="pointer-events-none absolute inset-0 z-10 sm:hidden">
+    <div className="pointer-events-none absolute inset-0 z-20 sm:hidden">
+      <div className="mc-look-pad pointer-events-auto" onPointerDown={onLook} />
       <div
-        className="pointer-events-auto absolute bottom-28 left-4 rounded-full border-2 border-white/30 bg-black/25"
-        style={{ width: `${stick}rem`, height: `${stick}rem` }}
+        className="pointer-events-auto absolute left-3 rounded-full border-2 border-white/30 bg-black/30"
+        style={{
+          width: `${stick}rem`,
+          height: `${stick}rem`,
+          bottom: "calc(7.25rem + env(safe-area-inset-bottom))",
+        }}
         onPointerDown={onStick}
       >
         <div
           className="absolute size-12 rounded-full bg-white/40"
-          style={{ left: `calc(50% + ${joy.x * 36 * size}px - 24px)`, top: `calc(50% + ${-joy.y * 36 * size}px - 24px)` }}
+          style={{
+            left: `calc(50% + ${joy.x * 32 * size}px - 24px)`,
+            top: `calc(50% + ${-joy.y * 32 * size}px - 24px)`,
+          }}
         />
       </div>
-      <div className="pointer-events-auto absolute inset-y-0 right-0 w-1/2" onPointerDown={onLook} />
-      <div className="pointer-events-auto absolute right-4 bottom-28 flex flex-col gap-2">
-        <button
-          type="button"
-          className="mc-btn size-14"
-          onPointerDown={() => {
-            const i = eng()?.input;
-            if (i) i.touchJump = true;
-          }}
-          onPointerUp={() => {
-            const i = eng()?.input;
-            if (i) i.touchJump = false;
-          }}
-        >
+      <div
+        className="pointer-events-auto absolute right-3 flex flex-col items-end gap-2"
+        style={{ bottom: "calc(7.25rem + env(safe-area-inset-bottom))" }}
+      >
+        <button type="button" className="mc-btn size-16 text-base" {...hold("touchJump")}>
           Jump
         </button>
-        <button
-          type="button"
-          className="mc-btn size-14"
-          onPointerDown={() => {
-            const i = eng()?.input;
-            if (i) i.touchAttack = true;
-          }}
-          onPointerUp={() => {
-            const i = eng()?.input;
-            if (i) i.touchAttack = false;
-          }}
-        >
-          Mine
-        </button>
-        <button
-          type="button"
-          className="mc-btn size-14"
-          onPointerDown={() => {
-            const i = eng()?.input;
-            if (i) i.touchUse = true;
-          }}
-          onPointerUp={() => {
-            const i = eng()?.input;
-            if (i) i.touchUse = false;
-          }}
-        >
-          Use
-        </button>
-        <button
-          type="button"
-          className="mc-btn size-12 text-sm"
-          onPointerDown={() => {
-            const i = eng()?.input;
-            if (i) i.touchSneak = true;
-          }}
-          onPointerUp={() => {
-            const i = eng()?.input;
-            if (i) i.touchSneak = false;
-          }}
-        >
+        <div className="flex gap-2">
+          <button type="button" className="mc-btn size-16 text-base" {...hold("touchAttack")}>
+            Mine
+          </button>
+          <button type="button" className="mc-btn size-16 text-base" {...hold("touchUse")}>
+            Use
+          </button>
+        </div>
+        <button type="button" className="mc-btn h-12 min-w-16 px-3 text-sm" {...hold("touchSneak")}>
           Sneak
         </button>
       </div>
@@ -797,7 +841,7 @@ function PauseMenu() {
   const setOverlay = useApp((s) => s.setOverlay);
   const setPhase = useApp((s) => s.setPhase);
   return (
-    <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/60 px-5">
+    <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/60 px-5">
       <div className="mc-panel w-full max-w-sm p-6">
         <h2 className="pixel-title mb-4 text-center text-2xl">Paused</h2>
         <div className="space-y-3">
@@ -885,7 +929,7 @@ function InventoryOverlay({ kind }: { kind: Overlay }) {
 
   if (!hud) return null;
   return (
-    <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/65 p-3">
+    <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/65 p-3 pt-[max(0.75rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       <div className="mc-panel max-h-[92dvh] w-full max-w-xl overflow-y-auto p-4">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="pixel-title text-xl">{kind === "furnace" ? "Furnace" : table ? "Crafting Table" : "Inventory"}</h2>
@@ -927,14 +971,14 @@ function InventoryOverlay({ kind }: { kind: Overlay }) {
             {hud.offhand && <ItemIcon id={hud.offhand.id} count={hud.offhand.count} />}
           </button>
         </div>
-        <div className="grid grid-cols-9 gap-1">
+        <div className="inv-grid">
           {hud.inventory.slice(9).map((s, i) => (
             <button key={i + 9} type="button" className="mc-slot" onClick={() => clickSlot("inv", i + 9)}>
               {s && <ItemIcon id={s.id} count={s.count} />}
             </button>
           ))}
         </div>
-        <div className="mt-2 grid grid-cols-9 gap-1">
+        <div className="inv-grid mt-2">
           {hud.inventory.slice(0, 9).map((s, i) => (
             <button key={i} type="button" className="mc-slot" onClick={() => clickSlot("inv", i)}>
               {s && <ItemIcon id={s.id} count={s.count} />}
@@ -954,7 +998,7 @@ function InventoryOverlay({ kind }: { kind: Overlay }) {
               placeholder="Search 3,200 blocks…"
               className="mb-2 min-h-11 w-full border-2 border-black bg-elevated px-3 text-sm"
             />
-            <div className="grid max-h-40 grid-cols-9 gap-1 overflow-y-auto">
+            <div className="inv-grid max-h-40 overflow-y-auto">
               {found.map((b) => (
                 <button
                   key={b.id}
