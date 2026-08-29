@@ -13,7 +13,7 @@ import { SettingsPanel } from "./settings-panel";
 
 let engineRef: Engine | null = null;
 export function getEngine() {
-  return engineRef;
+  return engineRef ?? (typeof window !== "undefined" ? window.__moc ?? null : null);
 }
 
 function McBtn({
@@ -90,7 +90,7 @@ function Panorama() {
           </div>
         ))}
       </div>
-      <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-black/25 to-black/55" />
+      <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/45" />
     </div>
   );
 }
@@ -562,11 +562,11 @@ function PlayView() {
       {phase === "playing" && overlay === "locked" && (
         <button type="button" onClick={clickToPlay} className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/55 px-5">
           <p className="pixel-title text-3xl">Tap to play</p>
-          <p className="mt-2 max-w-sm text-center text-sm text-muted">
+          <p className="mt-2 hidden max-w-sm text-center text-sm text-muted sm:block">
             Desktop: WASD · mouse look · left mine · right place · E inventory · Esc pause
           </p>
-          <p className="mt-1 max-w-sm text-center text-sm text-muted sm:hidden">
-            Phone: left stick to walk · drag the empty right side to look · Mine / Use / Jump on the right · bag and pause up top
+          <p className="mt-2 max-w-sm text-center text-sm text-muted sm:hidden">
+            Left stick to walk. Drag the empty right side to look. Mine, Use, and Jump on the right. Bag and pause at the top.
           </p>
         </button>
       )}
@@ -669,7 +669,7 @@ function Hud({ hud }: { hud: NonNullable<ReturnType<typeof useApp.getState>["hud
               type="button"
               className={`mc-slot ${hud.hotbar === i ? "outline outline-2 outline-white" : ""}`}
               onClick={() => {
-                if (engineRef) engineRef.player.hotbar = i;
+                if (getEngine()) getEngine()!.player.hotbar = i;
               }}
               aria-label={`Hotbar ${i + 1}`}
             >
@@ -700,9 +700,10 @@ function Hud({ hud }: { hud: NonNullable<ReturnType<typeof useApp.getState>["hud
         <button
           type="button"
           className="mc-btn size-12 p-0 sm:size-11"
-          onPointerDown={(e) => {
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
             e.stopPropagation();
-            engineRef?.setOverlay("inventory");
+            getEngine()?.setOverlay("inventory");
           }}
           aria-label="Inventory"
         >
@@ -711,9 +712,10 @@ function Hud({ hud }: { hud: NonNullable<ReturnType<typeof useApp.getState>["hud
         <button
           type="button"
           className="mc-btn size-12 p-0 sm:size-11"
-          onPointerDown={(e) => {
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
             e.stopPropagation();
-            engineRef?.setOverlay("pause");
+            getEngine()?.setOverlay("pause");
           }}
           aria-label="Pause"
         >
@@ -725,7 +727,7 @@ function Hud({ hud }: { hud: NonNullable<ReturnType<typeof useApp.getState>["hud
 }
 
 function MobileControls() {
-  const eng = () => engineRef;
+  const eng = () => getEngine();
   const [joy, setJoy] = useState({ x: 0, y: 0 });
   const size = useApp((s) => s.settings.touchSize);
 
@@ -848,7 +850,7 @@ function PauseMenu() {
           <McBtn
             primary
             onClick={() => {
-              engineRef?.setOverlay("none");
+              getEngine()?.setOverlay("none");
               setOverlay("locked");
             }}
           >
@@ -858,8 +860,8 @@ function PauseMenu() {
           <McBtn onClick={() => setOverlay("advancements")}>Advancements</McBtn>
           <McBtn
             onClick={() => {
-              void engineRef?.persist();
-              engineRef?.dispose();
+              void getEngine()?.persist();
+              getEngine()?.dispose();
               engineRef = null;
               setOverlay("none");
               setPhase("menu");
@@ -937,7 +939,7 @@ function InventoryOverlay({ kind }: { kind: Overlay }) {
             type="button"
             className="mc-btn min-h-11 px-3"
             onClick={() => {
-              engineRef?.setOverlay("none");
+              getEngine()?.setOverlay("none");
               setOverlay("locked");
             }}
           >
