@@ -1,0 +1,32 @@
+{
+  "name": "Mine or Craft",
+  "version": "1.1.0",
+  "blocks": 3200,
+  "biomes": 36,
+  "modes": ["survival", "creative", "hardcore"],
+  "dimensions": ["overworld", "nether", "end"],
+  "features": [
+    "chunked voxel world",
+    "crafting table",
+    "furnace",
+    "armor and shield",
+    "nether portal",
+    "void wyrm",
+    "pale one",
+    "p2p multiplayer",
+    "skin studio",
+    "xp lobby",
+    "day night cycle",
+    "fancy water",
+    "smooth lighting",
+    "weather",
+    "deep settings"
+  ],
+  "settings": {
+    "video": ["graphics", "renderDistance", "fov", "brightness", "ao", "shadows", "clouds", "particles", "fancyWater", "fog", "stars", "sunMoon", "weatherFx"],
+    "controls": ["mouseSens", "invertY", "invertX", "autoJump", "sneakToggle", "sprintToggle", "viewBob"],
+    "audio": ["volumeMaster", "volumeMusic", "volumeSfx", "volumeAmbient"],
+    "gameplay": ["difficulty", "cameraMode", "screenShake", "autoSave"],
+    "hud": ["crosshair", "guiScale", "showFps", "showCoords", "showBiome"]
+  }
+}
