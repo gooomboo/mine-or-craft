@@ -598,7 +598,28 @@ export function createAtlas(): Atlas {
   return atlas;
 }
 
+let sharedAtlas: Atlas | null = null;
+
+export function getSharedAtlas(): Atlas {
+  if (!sharedAtlas) sharedAtlas = createAtlas();
+  return sharedAtlas;
+}
+
+export function atlasTileCanvas(tile: number): HTMLCanvasElement {
+  const src = getSharedAtlas().canvas;
+  const c = document.createElement("canvas");
+  c.width = TILE;
+  c.height = TILE;
+  const ctx = c.getContext("2d")!;
+  ctx.imageSmoothingEnabled = false;
+  const col = ((tile % ATLAS_TILES) + ATLAS_TILES) % ATLAS_TILES;
+  const row = Math.floor(tile / ATLAS_TILES);
+  ctx.drawImage(src, col * TILE, row * TILE, TILE, TILE, 0, 0, TILE, TILE);
+  return c;
+}
+
 export function animateAtlas(atlas: Atlas, t: number) {
   const fn = (atlas as Atlas & { animate?: (t: number) => void }).animate;
   fn?.(t);
 }
+

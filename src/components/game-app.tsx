@@ -6,7 +6,9 @@ import { Engine } from "@/game/engine";
 import { displayName, getDef } from "@/game/items";
 import { loadChunks, loadPlayer, newWorldMeta } from "@/game/save";
 import { loadCustomSkins, saveCustomSkins, SKIN_PRESETS, skinFromJSON, skinToJSON, type SkinData } from "@/game/skins";
-import type { GameMode, Slot, WorldMeta } from "@/game/types";
+import type { ArenaId, GameMode, Slot, WorldMeta } from "@/game/types";
+import { ARENA_LIST, WORKSHOP_TEMPLATE } from "@/game/arenas";
+import { ADVANCEMENTS } from "@/game/advancements";
 import { useApp, type Overlay } from "@/store/app-store";
 import { ItemIcon } from "./item-icon";
 import { SettingsPanel } from "./settings-panel";
@@ -59,6 +61,8 @@ function MenuShell() {
         {phase === "create" && <CreateWorld />}
         {phase === "lobby" && <Lobby />}
         {phase === "skins" && <SkinStudio />}
+        {phase === "minigames" && <Minigames />}
+        {phase === "workshop" && <Workshop />}
       </div>
       {overlay === "settings" && <SettingsPanel fromPause={false} />}
     </div>
@@ -103,25 +107,28 @@ const SPLASH = [
   "3,200 blocks to place.",
   "The Void Wyrm waits.",
   "Also try the Nether.",
+  "Bed Wars at the lobby.",
+  "Hold jump to bunny hop.",
 ];
+
+function bootArena(kind: ArenaId) {
+  const info = ARENA_LIST.find((a) => a.id === kind)!;
+  const meta = newWorldMeta(info.name, info.seed, "survival", true);
+  meta.id = `w-${kind}-official`;
+  meta.arena = kind;
+  meta.code = info.code;
+  meta.name = info.name;
+  useApp.getState().upsertWorld(meta);
+  useApp.getState().setNet({ multiplayer: true, isHost: true });
+  void bootWorld(meta, true);
+}
 
 function TitleScreen() {
   const setPhase = useApp((s) => s.setPhase);
   const profile = useApp((s) => s.profile);
   const setProfile = useApp((s) => s.setProfile);
-  const upsert = useApp((s) => s.upsertWorld);
   const [name, setName] = useState(profile.username);
   const splash = SPLASH[Math.floor(Date.now() / 8000) % SPLASH.length]!;
-  const bootDual = () => {
-    const meta = newWorldMeta("Dual", 20260829, "survival", true);
-    meta.id = "w-dual-official";
-    meta.arena = "duel";
-    meta.code = "dual";
-    meta.name = "Dual";
-    upsert(meta);
-    useApp.getState().setNet({ multiplayer: true, isHost: true });
-    void bootWorld(meta, true);
-  };
   return (
     <div className="relative flex h-full flex-col items-center px-4 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
       <div className="relative mt-[7vh] mb-1 select-none">
@@ -138,13 +145,22 @@ function TitleScreen() {
           Singleplayer
         </McBtn>
         <McBtn onClick={() => setPhase("lobby")}>Multiplayer</McBtn>
-        <McBtn className="mc-btn-dual" onClick={bootDual}>
+        <McBtn className="mc-btn-dual" onClick={() => bootArena("duel")}>
           Dual — PvP Arena
+        </McBtn>
+        <McBtn className="mc-btn-mini" onClick={() => setPhase("minigames")}>
+          Minigames
         </McBtn>
         <div className="grid grid-cols-2 gap-2">
           <McBtn onClick={() => setPhase("skins")}>Skin Studio</McBtn>
           <McBtn onClick={() => useApp.getState().setOverlay("settings")}>Options…</McBtn>
         </div>
+        <McBtn
+          className="mc-btn-discord"
+          onClick={() => window.open("https://discord.gg/mineorcraft", "_blank", "noopener,noreferrer")}
+        >
+          Discord
+        </McBtn>
         <label className="mt-2 block text-[11px] tracking-wide text-muted">Username</label>
         <input
           value={name}
@@ -156,7 +172,7 @@ function TitleScreen() {
       <div className="mt-2 flex w-full max-w-3xl items-end justify-between px-1 text-[11px] text-muted">
         <span>Mine or Craft 1.21.8</span>
         <span className="text-right">
-          {profile.xp} XP
+          {profile.xp} XP · like Minecoins
           <br />
           Copyright Mojang AB? No. Independent.
         </span>
@@ -338,15 +354,9 @@ function Lobby() {
           className="mc-btn mc-btn-primary min-h-11 px-4"
           onClick={() => {
             const code = (joinCode || "").toLowerCase();
-            if (code === "dual") {
-              const meta = newWorldMeta("Dual", 20260829, "survival", true);
-              meta.id = "w-dual-official";
-              meta.arena = "duel";
-              meta.code = "dual";
-              meta.name = "Dual";
-              useApp.getState().setNet({ multiplayer: true, isHost: true });
-              upsert(meta);
-              void bootWorld(meta, true);
+            const listed = ARENA_LIST.find((a) => a.code === code);
+            if (listed) {
+              bootArena(listed.id);
               return;
             }
             const meta = newWorldMeta("Joined World", Date.now() % 1e9, "survival", false);
@@ -387,27 +397,23 @@ function Lobby() {
         onChange={(e) => setPrice(Math.max(0, Number(e.target.value) || 0))}
         className="mb-4 min-h-11 border-2 border-black bg-elevated px-3"
       />
-      <h3 className="mb-2 text-sm font-medium">Featured — Dual</h3>
-      <button
-        type="button"
-        className="mc-panel mc-btn-dual mb-4 flex w-full items-center justify-between px-3 py-3 text-left"
-        onClick={() => {
-          const meta = newWorldMeta("Dual", 20260829, "survival", true);
-          meta.id = "w-dual-official";
-          meta.arena = "duel";
-          meta.code = "dual";
-          meta.name = "Dual";
-          useApp.getState().setNet({ multiplayer: true, isHost: true });
-          upsert(meta);
-          void bootWorld(meta, true);
-        }}
-      >
-        <span>
-          <span className="block text-sm">Dual — PvP by Mods</span>
-          <span className="text-xs text-fg/80">Sword · axe · shield · golden apple · pearls</span>
-        </span>
-        <Users className="size-4" />
-      </button>
+      <h3 className="mb-2 text-sm font-medium">Official minigames</h3>
+      <div className="mb-4 grid grid-cols-2 gap-2">
+        {ARENA_LIST.map((a) => (
+          <button
+            key={a.id}
+            type="button"
+            className="mc-panel flex w-full flex-col px-3 py-3 text-left"
+            onClick={() => bootArena(a.id)}
+          >
+            <span className="text-sm">{a.name}</span>
+            <span className="text-[11px] text-muted">{a.blurb}</span>
+          </button>
+        ))}
+      </div>
+      <McBtn className="mb-4" onClick={() => setPhase("workshop")}>
+        Create + server snippet
+      </McBtn>
       <h3 className="mb-2 text-sm font-medium">Public worlds</h3>
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
         {published.length === 0 && <p className="text-sm text-muted">Nothing listed yet. Publish one of yours.</p>}
@@ -675,10 +681,19 @@ function Hud({ hud }: { hud: NonNullable<ReturnType<typeof useApp.getState>["hud
       {hud.blocking && (
         <p className="absolute top-[46%] left-1/2 -translate-x-1/2 text-[10px] tracking-widest text-white/80">BLOCKING</p>
       )}
-      {hud.arena === "duel" && (
+      {hud.arena && (
         <div className="pointer-events-none absolute top-3 left-1/2 w-[min(360px,86%)] -translate-x-1/2 text-center">
-          <p className="pixel-title text-lg tracking-wide">DUAL</p>
-          <p className="text-[11px] text-fg/80">PvP by Mods · sword · shield · golden apple · {hud.kills ?? 0} kills</p>
+          <p className="pixel-title text-lg tracking-wide">{hud.arena === "duel" ? "DUAL" : hud.arena.toUpperCase()}</p>
+          <p className="text-[11px] text-fg/80">
+            {hud.arena === "duel"
+              ? "PvP · sword · shield · golden apple"
+              : hud.arena === "bedwars"
+                ? "Protect your bed. Break theirs."
+                : hud.arena === "skywars"
+                  ? "Loot the islands. Last standing."
+                  : "Steal the enemy banner."}{" "}
+            · {hud.kills ?? 0} kills
+          </p>
         </div>
       )}
       {hud.boss && (
@@ -693,7 +708,7 @@ function Hud({ hud }: { hud: NonNullable<ReturnType<typeof useApp.getState>["hud
       {hud.toast && (
         <p className="absolute top-16 left-1/2 -translate-x-1/2 bg-black/60 px-3 py-1 text-sm">{hud.toast}</p>
       )}
-      <div className="absolute bottom-16 left-1/2 flex w-[min(420px,96%)] -translate-x-1/2 flex-col items-center gap-1 sm:bottom-20 pb-[env(safe-area-inset-bottom)]">
+      <div className="hud-cluster absolute left-1/2 flex w-[min(420px,96%)] -translate-x-1/2 flex-col items-center gap-1 pb-[env(safe-area-inset-bottom)]">
         {hud.mode !== "creative" && (
           <div className="flex w-full justify-between px-1">
             <div className="flex gap-0.5">
@@ -764,7 +779,7 @@ function Hud({ hud }: { hud: NonNullable<ReturnType<typeof useApp.getState>["hud
           )}
         </p>
       )}
-      <div className="absolute top-2 right-2 pointer-events-auto z-40 flex gap-2 pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)]">
+      <div className="absolute top-2 right-2 pointer-events-auto z-50 flex gap-2 pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)]">
         <button
           type="button"
           className="mc-btn size-12 p-0 sm:size-11"
@@ -863,57 +878,48 @@ function MobileControls() {
     },
   });
 
-  const stick = 7.2 * size;
+  const stick = 6.4 * size;
   return (
-    <div className="pointer-events-none absolute inset-0 z-20 sm:hidden">
+    <div className="mc-touch-layer">
       <div className="mc-look-pad pointer-events-auto" onPointerDown={onLook} />
       <div
-        className="pointer-events-auto absolute left-3 rounded-full border-2 border-white/30 bg-black/30"
-        style={{
-          width: `${stick}rem`,
-          height: `${stick}rem`,
-          bottom: "calc(7.25rem + env(safe-area-inset-bottom))",
-        }}
+        className="mc-joy pointer-events-auto relative rounded-full border-2 border-white/30 bg-black/30"
+        style={{ width: `${stick}rem`, height: `${stick}rem` }}
         onPointerDown={onStick}
       >
         <div
-          className="absolute size-12 rounded-full bg-white/40"
+          className="absolute size-11 rounded-full bg-white/40"
           style={{
-            left: `calc(50% + ${joy.x * 32 * size}px - 24px)`,
-            top: `calc(50% + ${-joy.y * 32 * size}px - 24px)`,
+            left: `calc(50% + ${joy.x * 28 * size}px - 22px)`,
+            top: `calc(50% + ${-joy.y * 28 * size}px - 22px)`,
           }}
         />
       </div>
-      <div
-        className="pointer-events-auto absolute right-3 flex flex-col items-end gap-2"
-        style={{ bottom: "calc(7.25rem + env(safe-area-inset-bottom))" }}
-      >
-        <button type="button" className="mc-btn size-16 text-base" {...hold("touchJump")}>
+      <div className="mc-actions pointer-events-auto">
+        <button type="button" className="mc-btn h-16 w-20 text-base" {...hold("touchJump")}>
           Jump
         </button>
-        <div className="flex gap-2">
-          <button type="button" className="mc-btn size-16 text-base" {...hold("touchAttack")}>
+        <div className="flex gap-1.5">
+          <button type="button" className="mc-btn h-14 min-w-14 px-3 text-sm" {...hold("touchAttack")}>
             Hit
           </button>
-          <button type="button" className="mc-btn size-16 text-base" {...hold("touchUse")}>
+          <button type="button" className="mc-btn h-14 min-w-14 px-3 text-sm" {...hold("touchUse")}>
             Use
           </button>
         </div>
-        <div className="flex gap-2">
-          <button type="button" className="mc-btn h-12 min-w-16 px-3 text-sm" {...hold("touchSprint")}>
+        <div className="flex max-w-[9.5rem] flex-wrap justify-end gap-1">
+          <button type="button" className="mc-btn h-10 min-w-12 px-2 text-[11px]" {...hold("touchSprint")}>
             Sprint
           </button>
-          <button type="button" className="mc-btn h-12 min-w-16 px-3 text-sm" {...hold("touchSneak")}>
+          <button type="button" className="mc-btn h-10 min-w-12 px-2 text-[11px]" {...hold("touchSneak")}>
             Sneak
           </button>
-        </div>
-        <div className="flex gap-2">
-          <button type="button" className="mc-btn h-12 min-w-16 px-3 text-sm" {...hold("touchBlock")}>
+          <button type="button" className="mc-btn h-10 min-w-12 px-2 text-[11px]" {...hold("touchBlock")}>
             Block
           </button>
           <button
             type="button"
-            className="mc-btn h-12 min-w-16 px-3 text-sm"
+            className="mc-btn h-10 min-w-12 px-2 text-[11px]"
             onPointerDown={(e) => {
               e.stopPropagation();
               eng()?.player.eat();
@@ -1208,7 +1214,7 @@ function DeadScreen() {
                 eng.player.x = eng.meta.spawn.x;
                 eng.player.y = eng.meta.spawn.y;
                 eng.player.z = eng.meta.spawn.z;
-                if (eng.meta.arena === "duel") eng.giveDuelKit(false);
+                if (eng.meta.arena) eng.giveArenaKit(false);
                 eng.setOverlay("none");
               }
               setOverlay("none");
@@ -1253,22 +1259,17 @@ function WinScreen() {
 function Advancements() {
   const unlocked = useApp((s) => s.profile.unlocked);
   const setOverlay = useApp((s) => s.setOverlay);
-  const all = [
-    ["getting_wood", "Getting Wood"],
-    ["diamonds", "Diamonds!"],
-    ["we_need_to_go_deeper", "We Need to Go Deeper"],
-    ["monster_hunter", "Monster Hunter"],
-    ["free_the_end", "Free the End"],
-  ];
   return (
     <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/70 px-5">
       <div className="mc-panel w-full max-w-md p-5">
-        <h2 className="pixel-title mb-3 text-2xl">Advancements</h2>
-        <ul className="space-y-2 text-sm">
-          {all.map(([id, name]) => (
-            <li key={id} className={unlocked.includes(id) ? "text-xp" : "text-muted"}>
-              {unlocked.includes(id) ? "Done — " : "Locked — "}
-              {name}
+        <h2 className="pixel-title mb-1 text-2xl">Advancements</h2>
+        <p className="mb-3 text-[11px] text-muted">{unlocked.length} / {ADVANCEMENTS.length} · XP is Minecoins for servers</p>
+        <ul className="max-h-[50vh] space-y-2 overflow-y-auto text-sm">
+          {ADVANCEMENTS.map((a) => (
+            <li key={a.id} className={unlocked.includes(a.id) ? "text-xp" : "text-muted"}>
+              {unlocked.includes(a.id) ? "Done — " : "Locked — "}
+              {a.name}
+              <span className="ml-1 text-[11px] opacity-70">+{a.xp} XP</span>
             </li>
           ))}
         </ul>
@@ -1276,6 +1277,86 @@ function Advancements() {
           Back
         </McBtn>
       </div>
+    </div>
+  );
+}
+
+function Minigames() {
+  const setPhase = useApp((s) => s.setPhase);
+  return (
+    <div className="mx-auto flex h-full w-full max-w-lg flex-col px-5 py-6">
+      <button type="button" onClick={() => setPhase("title")} className="mb-3 flex items-center gap-1 text-sm text-muted">
+        <ChevronLeft className="size-4" /> Back
+      </button>
+      <h2 className="pixel-title mb-1 text-3xl">Minigames</h2>
+      <p className="mb-4 text-sm text-muted">Official arenas with bots. Friends can join with the room code.</p>
+      <div className="space-y-2">
+        {ARENA_LIST.map((a) => (
+          <button
+            key={a.id}
+            type="button"
+            className="mc-panel flex w-full items-center justify-between px-4 py-3 text-left"
+            onClick={() => bootArena(a.id)}
+          >
+            <span>
+              <span className="block font-medium">{a.name}</span>
+              <span className="text-xs text-muted">{a.blurb} · code {a.code}</span>
+            </span>
+            <Users className="size-4 text-muted" />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function Workshop() {
+  const setPhase = useApp((s) => s.setPhase);
+  const upsert = useApp((s) => s.upsertWorld);
+  const [name, setName] = useState("My Server");
+  const [code, setCode] = useState(WORKSHOP_TEMPLATE);
+  const [err, setErr] = useState("");
+  return (
+    <div className="mx-auto flex h-full w-full max-w-lg flex-col px-5 py-6">
+      <button type="button" onClick={() => setPhase("lobby")} className="mb-3 flex items-center gap-1 text-sm text-muted">
+        <ChevronLeft className="size-4" /> Back
+      </button>
+      <h2 className="pixel-title mb-1 text-3xl">Server snippet</h2>
+      <p className="mb-3 text-sm text-muted">
+        Edit kit JSON for this world only — like a tiny GitHub gist. Publish from the lobby when you are happy.
+      </p>
+      <label className="text-xs text-muted">Server name</label>
+      <input
+        value={name}
+        onChange={(e) => setName(e.target.value)}
+        className="mb-3 min-h-11 border-2 border-black bg-elevated px-3"
+      />
+      <textarea
+        value={code}
+        onChange={(e) => setCode(e.target.value)}
+        spellCheck={false}
+        className="min-h-[40vh] flex-1 border-2 border-black bg-[#0c0d10] p-3 font-mono text-xs text-fg"
+      />
+      {err && <p className="mt-2 text-sm text-danger">{err}</p>}
+      <McBtn
+        primary
+        className="mt-3"
+        onClick={() => {
+          try {
+            JSON.parse(code);
+            const meta = newWorldMeta(name || "My Server", Date.now() % 1e9, "survival", true);
+            meta.modJson = code;
+            meta.arena = "duel";
+            upsert(meta);
+            useApp.getState().setNet({ multiplayer: true, isHost: true });
+            void bootWorld(meta, true);
+          } catch {
+            setErr("JSON did not parse. Check commas and quotes.");
+          }
+        }}
+      >
+        Boot this server
+      </McBtn>
     </div>
   );
 }

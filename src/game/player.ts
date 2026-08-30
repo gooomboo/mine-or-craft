@@ -7,7 +7,7 @@ import { getDef } from "./items";
 const WIDTH = 0.6;
 const HEIGHT = 1.8;
 const EYE = 1.62;
-const GRAVITY = 28;
+const GRAVITY = 32;
 const JUMP = 8.4;
 const WALK = 4.317;
 const SPRINT = 5.612;
@@ -155,9 +155,11 @@ export class Player {
       this.vx += (wishX * speed - this.vx) * accel * dt;
       this.vz += (wishZ * speed - this.vz) * accel * dt;
       this.vy -= GRAVITY * dt;
-      if ((this.onGround || this.lastGround < COYOTE) && input.justJump) {
+      // Minecraft: holding jump re-jumps the instant you land (Space / Jump held).
+      if ((this.onGround || this.lastGround < COYOTE) && input.jump) {
         this.vy = JUMP + (this.sprinting ? 0.35 : 0);
         this.onGround = false;
+        this.lastGround = COYOTE;
       } else if (this.autoJump && this.onGround && input.moveY > 0.3 && !this.sneaking) {
         const fx = Math.floor(this.x + f.x * 0.85);
         const fz = Math.floor(this.z + f.z * 0.85);

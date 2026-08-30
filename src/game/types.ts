@@ -12,6 +12,8 @@ export type GraphicsPreset = "fast" | "fancy" | "fabulous";
 export type CameraMode = "first" | "third" | "front";
 export type Difficulty = "peaceful" | "easy" | "normal" | "hard";
 export type CrosshairStyle = "cross" | "dot" | "circle" | "off";
+export type ArenaId = "duel" | "bedwars" | "skywars" | "ctf";
+
 
 export type Slot = { id: number; count: number } | null;
 
@@ -80,7 +82,8 @@ export interface WorldMeta {
   published?: boolean;
   priceXp?: number;
   code?: string;
-  arena?: "duel";
+  arena?: ArenaId;
+  modJson?: string;
 }
 
 export interface PlayerSave {
@@ -185,7 +188,7 @@ export const DEFAULT_SETTINGS: Settings = {
   chatOpacity: 0.85,
   brightness: 1,
   contrast: 1,
-  pixelRatioCap: 1.5,
+  pixelRatioCap: 2,
   maxFps: 0,
   antialias: true,
   fog: true,

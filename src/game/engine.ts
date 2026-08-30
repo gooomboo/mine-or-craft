@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { animateAtlas, createAtlas, type Atlas } from "./atlas";
+import { animateAtlas, getSharedAtlas, type Atlas } from "./atlas";
 import { BLOCKS, COBBLE, CRAFTING_TABLE, END_PORTAL, FIRE, FURNACE, LAVA, NETHER_PORTAL, OBSIDIAN, WATER } from "./blocks";
 import { GameAudio } from "./audio";
 import { findSpawn, strongholdChunk, biomeAtIndex } from "./gen";
@@ -23,7 +23,23 @@ import {
   DIAMOND_AXE,
   LAVA_BUCKET,
   FISHING_ROD,
+  IRON_SWORD,
+  STONE_SWORD,
+  STONE_AXE,
+  SHEARS,
+  IRON_HELM,
+  IRON_CHEST,
+  IRON_LEGS,
+  IRON_BOOTS,
+  LEATHER_HELM,
+  LEATHER_CHEST,
+  LEATHER_LEGS,
+  LEATHER_BOOTS,
+  WOOD_PICK,
+  IRON_PICK,
 } from "./items";
+import { ARENA_BOT, ARENA_SPAWN, isArena } from "./arenas";
+import { ADV_BY_ID } from "./advancements";
 import { disposeMob, hitMob, spawnMob, trySpawn, updateMobs, type Mob } from "./mobs";
 import { addHeld, addHumanoid, buildViewArm, fillHeld, heldKind, hexNum, swingLimbs } from "./models";
 import { SKIN_PRESETS } from "./skins";
@@ -165,7 +181,7 @@ export class Engine {
     this.sun.shadow.bias = -0.0008;
     this.scene.add(this.sun);
     this.scene.add(this.sun.target);
-    this.atlas = createAtlas();
+    this.atlas = getSharedAtlas();
     this.world = new World(this.scene, this.atlas, meta.seed);
     this.world.arena = meta.arena ?? null;
     this.world.setFancyWater(settings.fancyWater);
@@ -329,7 +345,10 @@ export class Engine {
   async boot(save: PlayerSave | null, edits: Map<string, Uint16Array>) {
     this.world.edits = edits;
     let spawn = findSpawn(this.meta.seed, this.world.noises);
-    if (this.meta.arena === "duel") spawn = { x: 0.5, y: 34, z: -16.5 };
+    if (isArena(this.meta.arena)) {
+      const s = ARENA_SPAWN[this.meta.arena];
+      spawn = { x: s.x, y: s.y, z: s.z };
+    }
     this.meta.spawn = spawn;
     if (save) {
       this.player.x = save.x;
@@ -373,71 +392,157 @@ export class Engine {
       await new Promise((r) => setTimeout(r, 0));
     }
     if (!save) {
-      if (this.meta.arena === "duel") {
-        this.player.x = 0.5;
-        this.player.y = 34;
-        this.player.z = -16.5;
+      if (isArena(this.meta.arena)) {
+        const s = ARENA_SPAWN[this.meta.arena];
+        this.player.x = s.x;
+        this.player.y = s.y;
+        this.player.z = s.z;
         this.worldTime = DAY_LEN * 0.48;
       } else {
         this.player.y = this.world.highestSolid(this.player.x, this.player.z) + 2;
       }
     }
     this.applyDimVisuals();
-    if (this.meta.arena === "duel") {
+    if (isArena(this.meta.arena)) {
+      const s = ARENA_SPAWN[this.meta.arena];
       this.worldTime = DAY_LEN * 0.42;
-      if (this.player.y < 30) {
-        this.player.x = 0.5;
-        this.player.y = 34;
-        this.player.z = -16.5;
-      }
+      this.player.x = s.x;
+      this.player.y = s.y;
+      this.player.z = s.z;
       this.player.difficulty = "hard";
       this.settings.difficulty = "hard";
-      this.giveDuelKit(!!save);
-      this.player.yaw = Math.PI;
+      this.giveArenaKit(!!save);
+      this.applyModJson();
+      this.player.yaw = s.yaw;
       this.player.pitch = 0;
       this.sun.intensity = 1.45;
       this.hemi.intensity = 0.9;
-      const botY = Math.max(33, this.world.highestSolid(0.5, 16.5) + 1);
-      const bot = spawnMob("duelist", 0.5, botY, 16.5, this.scene);
+      const b = ARENA_BOT[this.meta.arena];
+      const botY = Math.max(b.y, this.world.highestSolid(b.x, b.z) + 1);
+      const bot = spawnMob("duelist", b.x, botY, b.z, this.scene);
       this.mobs.push(bot);
-      this.toastMsg("DUAL — fight with sword, shield, and golden apples.");
-      this.chat.push("Official server Dual, hosted by Mods. Last fighter standing.");
+      const labels: Record<string, string> = {
+        duel: "DUAL — fight with sword, shield, and golden apples.",
+        bedwars: "BED WARS — protect your bed. Break theirs.",
+        skywars: "SKY WARS — loot the islands. Don't fall.",
+        ctf: "CAPTURE THE FLAG — steal the enemy banner.",
+      };
+      this.toastMsg(labels[this.meta.arena] ?? "Arena");
+      this.chat.push("Official minigame hosted by Mods.");
+      if (this.meta.arena === "bedwars") this.grant("bed_wars_win");
+      if (this.meta.arena === "skywars") this.grant("sky_wars_win");
     }
     this.running = true;
     this.last = performance.now();
     this.loop(this.last);
     this.installControlsTest();
     this.chat.push("Welcome to Mine or Craft.");
-    if (this.meta.arena !== "duel") this.chat.push("Punch a tree. Craft a bench. Survive the night.");
+    if (this.meta.arena) this.chat.push("Arena: respawn at your pad. PvP on.");
+    else this.chat.push("Punch a tree. Craft a bench. Survive the night.");
   }
 
   giveDuelKit(keepIfFilled: boolean) {
+    this.giveArenaKit(keepIfFilled);
+  }
+
+  giveArenaKit(keepIfFilled: boolean) {
     if (keepIfFilled && this.player.inventory.some((s) => s)) return;
     this.player.inventory = Array.from({ length: 36 }, () => null);
-    this.player.give(DIAMOND_SWORD, 1);
-    this.player.give(DIAMOND_AXE, 1);
-    this.player.give(GOLDEN_APPLE, 8);
-    this.player.give(BOW, 1);
-    this.player.give(ARROW, 32);
-    this.player.give(ENDER_PEARL, 16);
-    this.player.give(COBBLE, 64);
-    this.player.give(WATER_BUCKET, 1);
-    this.player.give(LAVA_BUCKET, 1);
-    this.player.give(FISHING_ROD, 1);
-    this.player.give(COOKED_BEEF, 16);
-    this.player.give(FLINT_STEEL, 1);
-    this.player.offhand = { id: SHIELD, count: 1 };
-    this.player.armor = [
-      { id: DIAMOND_HELM, count: 1 },
-      { id: DIAMOND_CHEST, count: 1 },
-      { id: DIAMOND_LEGS, count: 1 },
-      { id: DIAMOND_BOOTS, count: 1 },
-    ];
+    const a = this.meta.arena;
+    if (a === "bedwars") {
+      this.player.give(IRON_SWORD, 1);
+      this.player.give(SHEARS, 1);
+      this.player.give(WOOD_PICK, 1);
+      this.player.give(COOKED_BEEF, 16);
+      const wool = 271;
+      this.player.give(wool, 64);
+      this.player.armor = [
+        { id: LEATHER_HELM, count: 1 },
+        { id: LEATHER_CHEST, count: 1 },
+        { id: LEATHER_LEGS, count: 1 },
+        { id: LEATHER_BOOTS, count: 1 },
+      ];
+      this.player.offhand = null;
+    } else if (a === "skywars") {
+      this.player.give(STONE_SWORD, 1);
+      this.player.give(STONE_AXE, 1);
+      this.player.give(COOKED_BEEF, 8);
+      this.player.give(BOW, 1);
+      this.player.give(ARROW, 12);
+      this.player.armor = [
+        { id: LEATHER_HELM, count: 1 },
+        { id: LEATHER_CHEST, count: 1 },
+        { id: LEATHER_LEGS, count: 1 },
+        { id: LEATHER_BOOTS, count: 1 },
+      ];
+      this.player.offhand = null;
+    } else if (a === "ctf") {
+      this.player.give(IRON_SWORD, 1);
+      this.player.give(BOW, 1);
+      this.player.give(ARROW, 24);
+      this.player.give(COOKED_BEEF, 16);
+      this.player.give(IRON_PICK, 1);
+      this.player.offhand = { id: SHIELD, count: 1 };
+      this.player.armor = [
+        { id: IRON_HELM, count: 1 },
+        { id: IRON_CHEST, count: 1 },
+        { id: IRON_LEGS, count: 1 },
+        { id: IRON_BOOTS, count: 1 },
+      ];
+    } else {
+      this.player.give(DIAMOND_SWORD, 1);
+      this.player.give(DIAMOND_AXE, 1);
+      this.player.give(GOLDEN_APPLE, 8);
+      this.player.give(BOW, 1);
+      this.player.give(ARROW, 32);
+      this.player.give(ENDER_PEARL, 16);
+      this.player.give(COBBLE, 64);
+      this.player.give(WATER_BUCKET, 1);
+      this.player.give(LAVA_BUCKET, 1);
+      this.player.give(FISHING_ROD, 1);
+      this.player.give(COOKED_BEEF, 16);
+      this.player.give(FLINT_STEEL, 1);
+      this.player.offhand = { id: SHIELD, count: 1 };
+      this.player.armor = [
+        { id: DIAMOND_HELM, count: 1 },
+        { id: DIAMOND_CHEST, count: 1 },
+        { id: DIAMOND_LEGS, count: 1 },
+        { id: DIAMOND_BOOTS, count: 1 },
+      ];
+    }
     this.player.hotbar = 0;
     this.player.health = 20;
     this.player.hunger = 20;
     this.player.absorption = 0;
     this.dressPlayer(true);
+  }
+
+  applyModJson() {
+    const raw = this.meta.modJson;
+    if (!raw) return;
+    try {
+      const mod = JSON.parse(raw) as {
+        kit?: { id: number; count: number }[];
+        armor?: number[];
+        offhand?: number;
+        maxHealth?: number;
+        keepInventory?: boolean;
+      };
+      if (Array.isArray(mod.kit) && mod.kit.length) {
+        this.player.inventory = Array.from({ length: 36 }, () => null);
+        for (const s of mod.kit) {
+          if (s && s.id > 0) this.player.give(s.id, Math.max(1, s.count || 1));
+        }
+      }
+      if (Array.isArray(mod.armor)) {
+        this.player.armor = [0, 1, 2, 3].map((i) => (mod.armor![i] ? { id: mod.armor![i]!, count: 1 } : null));
+      }
+      if (mod.offhand) this.player.offhand = { id: mod.offhand, count: 1 };
+      if (mod.maxHealth && mod.maxHealth > 0) this.player.health = Math.min(20, mod.maxHealth);
+      this.dressPlayer(!!this.player.armor[1]);
+    } catch {
+      this.toastMsg("Server snippet had a JSON error.");
+    }
   }
 
   dressPlayer(armored: boolean) {
@@ -622,13 +727,30 @@ export class Engine {
       this.burst(this.player.x, this.player.y + 0.1, this.player.z, 0xc4b48a);
       this.trauma = Math.min(1, this.trauma + 0.08);
       this.player.squash = 0.72;
+      this.audio.land();
     }
+    if (!this.player.onGround && this.wasOnGround && this.player.vy > 4) this.audio.jump();
     if (this.player.sprinting && this.player.onGround && Math.random() < dt * 8) {
       this.burst(this.player.x, this.player.y + 0.05, this.player.z, 0xc4b48a);
     }
     this.wasOnGround = this.player.onGround;
     this.camPunch = Math.max(0, this.camPunch - dt * 3.2);
     this.hitFlash = Math.max(0, this.hitFlash - dt * 4);
+
+    if (this.meta.arena === "ctf") {
+      if (Math.abs(this.player.x) < 1.8 && Math.abs(this.player.z - 18) < 1.8) {
+        this.grant("ctf_cap");
+        this.addXp(25);
+        this.toastMsg("Blue flag captured! Back to spawn.");
+        const s = ARENA_SPAWN.ctf;
+        this.player.x = s.x;
+        this.player.y = s.y;
+        this.player.z = s.z;
+      }
+    }
+    if ((this.meta.arena === "skywars" || this.meta.arena === "bedwars") && this.player.y < 16) {
+      this.player.hurtBy(50, "void");
+    }
 
     if (input.justDrop) {
       this.player.takeSelected(1);
@@ -850,7 +972,7 @@ export class Engine {
 
   private tickMobs(dt: number) {
     this.spawnTimer += dt;
-    if (this.spawnTimer > 4 && this.meta.arena !== "duel") {
+    if (this.spawnTimer > 4 && !this.meta.arena) {
       this.spawnTimer = 0;
       const m = trySpawn(this.scene, this.world, this.player, this.mobs, this.isNight(), this.meta.seed, this.settings.difficulty);
       if (m) this.mobs.push(m);
@@ -878,9 +1000,9 @@ export class Engine {
     if (this.dragon && this.dragon.hp <= 0 && !this.killedDragon) {
       this.killedDragon = true;
       this.hooks.onWin();
-      this.addXp(120);
+      this.addXp(2500);
       this.grant("free_the_end");
-      this.toastMsg("The Void Wyrm falls.");
+      this.toastMsg("The Void Wyrm falls. +2500 XP");
       if (this.wraith) {
         this.killMob(this.wraith);
         this.wraith = null;
@@ -890,7 +1012,7 @@ export class Engine {
   }
 
   private tickWraith(dt: number) {
-    if (this.killedDragon || this.meta.arena === "duel") return;
+    if (this.killedDragon || this.meta.arena) return;
     if (this.overlay !== "none") return;
     if (this.afk > 240 && !this.wraith) {
       const f = this.player.forward();
@@ -992,10 +1114,12 @@ export class Engine {
     if (m.kind === "duelist") {
       this.dualKills++;
       this.player.kills++;
-      this.toastMsg(`Kill ${this.dualKills} — next duelist incoming.`);
+      this.grant("dual_first_blood");
+      this.toastMsg(`Kill ${this.dualKills} — next fighter incoming.`);
       setTimeout(() => {
         if (!this.running) return;
-        const bot = spawnMob("duelist", 0.5, this.world.highestSolid(0.5, 16.5) + 1, 16.5, this.scene);
+        const b = isArena(this.meta.arena) ? ARENA_BOT[this.meta.arena] : { x: 0.5, y: 33, z: 16.5 };
+        const bot = spawnMob("duelist", b.x, Math.max(b.y, this.world.highestSolid(b.x, b.z) + 1), b.z, this.scene);
         this.mobs.push(bot);
       }, 1600);
     }
@@ -1087,8 +1211,10 @@ export class Engine {
   grant(id: string) {
     const p = useApp.getState().profile;
     if (p.unlocked.includes(id)) return;
-    useApp.getState().setProfile({ unlocked: [...p.unlocked, id], xp: p.xp + 15 });
-    this.toastMsg("Advancement: " + id.replace(/_/g, " "));
+    const def = ADV_BY_ID.get(id);
+    const bonus = def?.xp ?? 15;
+    useApp.getState().setProfile({ unlocked: [...p.unlocked, id], xp: p.xp + bonus });
+    this.toastMsg("Advancement: " + (def?.name ?? id.replace(/_/g, " ")));
     this.audio.craft();
   }
 

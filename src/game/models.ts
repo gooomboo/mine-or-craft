@@ -26,6 +26,13 @@ function mat(color: number, emissive = 0) {
   return m;
 }
 
+function shadeHex(color: number, f: number) {
+  const r = Math.max(0, Math.min(255, Math.round(((color >> 16) & 255) * f)));
+  const g = Math.max(0, Math.min(255, Math.round(((color >> 8) & 255) * f)));
+  const b = Math.max(0, Math.min(255, Math.round((color & 255) * f)));
+  return (r << 16) | (g << 8) | b;
+}
+
 export function part(w: number, h: number, d: number, color: number, y: number, x = 0, z = 0, emissive = 0): THREE.Mesh {
   const m = new THREE.Mesh(geo(w, h, d), mat(color, emissive));
   m.position.set(x, y, z);
@@ -69,6 +76,9 @@ export function addHumanoid(g: THREE.Group, c: HumanoidColors) {
   const shirt = c.chest ?? c.shirt;
   const body = part(0.5 * s, 0.72 * s, 0.28 * s, shirt, 0.96 * s);
   g.add(body);
+  g.add(part(0.52 * s, 0.08 * s, 0.3 * s, shadeHex(shirt, 0.72), 1.28 * s));
+  g.add(part(0.52 * s, 0.07 * s, 0.3 * s, shadeHex(shirt, 0.55), 0.62 * s));
+  g.add(part(0.12 * s, 0.14 * s, 0.06 * s, shadeHex(shirt, 0.82), 1.08 * s, 0.14 * s, -0.14 * s));
   if (c.helm !== undefined) g.add(part(0.56 * s, 0.28 * s, 0.56 * s, c.helm, 1.82 * s));
   const armL = new THREE.Group();
   armL.position.set(-0.36 * s, 1.28 * s, 0);
@@ -80,6 +90,7 @@ export function addHumanoid(g: THREE.Group, c: HumanoidColors) {
   const legL = new THREE.Group();
   legL.position.set(-0.12 * s, 0.6 * s, 0);
   legL.add(part(0.22 * s, 0.7 * s, 0.22 * s, pants, -0.3 * s));
+  legL.add(part(0.08 * s, 0.5 * s, 0.04 * s, shadeHex(pants, 0.7), -0.28 * s, 0.08 * s, -0.1 * s));
   const shoe = c.boots ?? c.shoes ?? 0x1a1a1a;
   legL.add(part(0.24 * s, 0.12 * s, 0.28 * s, shoe, -0.62 * s));
   const legR = new THREE.Group();
@@ -108,6 +119,10 @@ export function addQuad(
 ) {
   g.add(part(o.bw, o.bh, o.bd, o.body, o.bh * 0.55 + 0.18));
   g.add(part(o.bw * 0.55, o.bh * 0.55, o.bw * 0.55, o.head, o.hy, 0, -o.bd * 0.42));
+  g.add(part(0.08, 0.07, 0.04, 0xf4f0e8, o.hy + 0.04, -o.bw * 0.12, -o.bd * 0.68));
+  g.add(part(0.08, 0.07, 0.04, 0xf4f0e8, o.hy + 0.04, o.bw * 0.12, -o.bd * 0.68));
+  g.add(part(0.045, 0.045, 0.03, 0x1a1a22, o.hy + 0.04, -o.bw * 0.12, -o.bd * 0.71));
+  g.add(part(0.045, 0.045, 0.03, 0x1a1a22, o.hy + 0.04, o.bw * 0.12, -o.bd * 0.71));
   if (o.snout !== undefined) g.add(part(o.bw * 0.28, o.bh * 0.18, o.bw * 0.22, o.snout, o.hy - 0.06, 0, -o.bd * 0.58));
   if (o.ear !== undefined) {
     g.add(part(0.12, 0.18, 0.08, o.ear, o.hy + 0.28, -o.bw * 0.18, -o.bd * 0.4));

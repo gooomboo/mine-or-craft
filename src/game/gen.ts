@@ -52,6 +52,7 @@ import {
   NETHERRACK,
   OAK_LEAVES,
   OAK_LOG,
+  OAK_PLANKS,
   OBSIDIAN,
   PACKED_ICE,
   PALE_LEAVES,
@@ -94,10 +95,12 @@ import {
   QUARTZ_BLOCK,
   NETHER_BRICKS,
   NETHER_PORTAL,
+  BLOCKS,
+  CHEST,
 } from "./blocks";
 import { BIOMES, pickNether, pickOverworld, type Biome, type BiomeId } from "./biomes";
 import { hash2, hash3, mixSeed, mulberry32 } from "./rng";
-import { CHUNK_H, CHUNK_W, SEA_LEVEL, type Dim } from "./types";
+import { CHUNK_H, CHUNK_W, SEA_LEVEL, type ArenaId, type Dim } from "./types";
 import { createNoise2D, createNoise3D } from "simplex-noise";
 
 export interface ChunkData {
@@ -297,13 +300,146 @@ function genDuel(blocks: Uint16Array, biomes: Uint8Array, cx: number, cz: number
   }
 }
 
+function blockKey(key: string, fallback: number) {
+  for (let i = 1; i < BLOCKS.length; i++) {
+    if (BLOCKS[i]?.key === key) return i;
+  }
+  return fallback;
+}
+
+function voidFloor(blocks: Uint16Array, x: number, z: number) {
+  set(blocks, x, 0, z, BEDROCK);
+}
+
+function stampDisk(
+  blocks: Uint16Array,
+  cx: number,
+  cz: number,
+  ox: number,
+  oz: number,
+  floor: number,
+  r: number,
+  top: number,
+  fill: number,
+) {
+  for (let z = 0; z < CHUNK_W; z++) {
+    for (let x = 0; x < CHUNK_W; x++) {
+      const wx = cx * CHUNK_W + x;
+      const wz = cz * CHUNK_W + z;
+      const d = Math.hypot(wx - ox, wz - oz);
+      if (d <= r) {
+        for (let y = 1; y <= floor; y++) set(blocks, x, y, z, y === floor ? top : fill);
+      }
+    }
+  }
+}
+
+function genBedwars(blocks: Uint16Array, biomes: Uint8Array, cx: number, cz: number) {
+  biomes.fill(BIOME_TO_I.get("plains") ?? 0);
+  const redWool = blockKey("red_wool", STONE_BRICKS);
+  const blueWool = blockKey("blue_wool", QUARTZ_BLOCK);
+  const redBed = blockKey("red_bed", redWool);
+  const blueBed = blockKey("blue_bed", blueWool);
+  const floor = 48;
+  for (let z = 0; z < CHUNK_W; z++) for (let x = 0; x < CHUNK_W; x++) voidFloor(blocks, x, z);
+  stampDisk(blocks, cx, cz, 0, -20, floor, 6, redWool, STONE_BRICKS);
+  stampDisk(blocks, cx, cz, 0, 20, floor, 6, blueWool, STONE_BRICKS);
+  stampDisk(blocks, cx, cz, 0, 0, floor, 4, OAK_PLANKS, STONE_BRICKS);
+  for (let z = 0; z < CHUNK_W; z++) {
+    for (let x = 0; x < CHUNK_W; x++) {
+      const wx = cx * CHUNK_W + x;
+      const wz = cz * CHUNK_W + z;
+      if (wx === 0 && Math.abs(wz) < 20 && Math.abs(wz) > 4) {
+        set(blocks, x, floor - 1, z, STONE_BRICKS);
+        set(blocks, x, floor, z, (wz < 0 ? redWool : blueWool));
+      }
+      if (wx === 0 && wz === -18) {
+        set(blocks, x, floor + 1, z, redBed);
+        set(blocks, x, floor, z, redWool);
+      }
+      if (wx === 0 && wz === 18) {
+        set(blocks, x, floor + 1, z, blueBed);
+        set(blocks, x, floor, z, blueWool);
+      }
+      if (wx === 0 && wz === 0) set(blocks, x, floor + 1, z, CHEST);
+      if ((wx === 2 || wx === -2) && (wz === -20 || wz === 20)) set(blocks, x, floor + 1, z, GLOWSTONE);
+    }
+  }
+}
+
+function genSkywars(blocks: Uint16Array, biomes: Uint8Array, cx: number, cz: number) {
+  biomes.fill(BIOME_TO_I.get("plains") ?? 0);
+  const floor = 56;
+  const pads: [number, number][] = [
+    [0, -16],
+    [0, 16],
+    [-16, 0],
+    [16, 0],
+    [0, 0],
+  ];
+  for (let z = 0; z < CHUNK_W; z++) for (let x = 0; x < CHUNK_W; x++) voidFloor(blocks, x, z);
+  for (const [ox, oz] of pads) {
+    const r = ox === 0 && oz === 0 ? 5 : 4;
+    const top = ox === 0 && oz === 0 ? GRASS : STONE_BRICKS;
+    stampDisk(blocks, cx, cz, ox, oz, floor, r, top, STONE);
+  }
+  for (let z = 0; z < CHUNK_W; z++) {
+    for (let x = 0; x < CHUNK_W; x++) {
+      const wx = cx * CHUNK_W + x;
+      const wz = cz * CHUNK_W + z;
+      if (wx === 0 && wz === 0) set(blocks, x, floor + 1, z, CHEST);
+      if (Math.abs(wx) === 16 && wz === 0) set(blocks, x, floor + 1, z, CHEST);
+      if (wx === 0 && Math.abs(wz) === 16) set(blocks, x, floor + 1, z, CHEST);
+      if ((wx + wz) % 8 === 0 && Math.hypot(wx, wz) < 4) set(blocks, x, floor + 6, z, GLOWSTONE);
+    }
+  }
+}
+
+function genCtf(blocks: Uint16Array, biomes: Uint8Array, cx: number, cz: number) {
+  biomes.fill(BIOME_TO_I.get("plains") ?? 0);
+  const floor = 32;
+  const redWool = blockKey("red_wool", STONE_BRICKS);
+  const blueWool = blockKey("blue_wool", QUARTZ_BLOCK);
+  const redBan = blockKey("red_banner", redWool);
+  const blueBan = blockKey("blue_banner", blueWool);
+  for (let z = 0; z < CHUNK_W; z++) {
+    for (let x = 0; x < CHUNK_W; x++) {
+      const wx = cx * CHUNK_W + x;
+      const wz = cz * CHUNK_W + z;
+      const ax = Math.abs(wx);
+      const az = Math.abs(wz);
+      set(blocks, x, 0, z, BEDROCK);
+      if (ax > 28 || az > 28) {
+        for (let y = 1; y <= 8; y++) set(blocks, x, y, z, LAVA);
+        continue;
+      }
+      if (ax > 22 || az > 22) {
+        for (let y = 1; y <= 40; y++) set(blocks, x, y, z, STONE_BRICKS);
+        continue;
+      }
+      for (let y = 1; y < floor; y++) set(blocks, x, y, z, STONE);
+      set(blocks, x, floor, z, (wx + wz) & 1 ? GRASS : DIRT);
+      if (wz < -8) set(blocks, x, floor, z, redWool);
+      if (wz > 8) set(blocks, x, floor, z, blueWool);
+      if (wx === 0 && wz === -18) {
+        for (let y = floor + 1; y <= floor + 4; y++) set(blocks, x, y, z, redBan);
+      }
+      if (wx === 0 && wz === 18) {
+        for (let y = floor + 1; y <= floor + 4; y++) set(blocks, x, y, z, blueBan);
+      }
+      if (wx === 0 && wz === 0) set(blocks, x, floor, z, QUARTZ_BLOCK);
+      if (ax === 0 && az === 0) set(blocks, x, floor + 1, z, GLOWSTONE);
+    }
+  }
+}
+
 export function generateChunk(
   seed: number,
   cx: number,
   cz: number,
   dim: Dim,
   noises: Noises,
-  arena?: "duel" | null,
+  arena?: ArenaId | null,
 ): ChunkData {
   const blocks = new Uint16Array(CHUNK_W * CHUNK_H * CHUNK_W);
   const biomes = new Uint8Array(CHUNK_W * CHUNK_W);
@@ -311,6 +447,18 @@ export function generateChunk(
 
   if (arena === "duel") {
     genDuel(blocks, biomes, cx, cz);
+    return { blocks, biomes };
+  }
+  if (arena === "bedwars") {
+    genBedwars(blocks, biomes, cx, cz);
+    return { blocks, biomes };
+  }
+  if (arena === "skywars") {
+    genSkywars(blocks, biomes, cx, cz);
+    return { blocks, biomes };
+  }
+  if (arena === "ctf") {
+    genCtf(blocks, biomes, cx, cz);
     return { blocks, biomes };
   }
   if (dim === "nether") {
@@ -595,6 +743,20 @@ function genNether(
         let y = 40;
         while (y > 4 && get(blocks, x, y, z) === AIR) y--;
         for (let i = 0; i < 6; i++) set(blocks, x, y + 1 + i, z, BONE_BLOCK_SAFE);
+      }
+      if (bid === "nether_wastes" && rng() < 0.015) {
+        let y = 70;
+        while (y > 12 && get(blocks, x, y, z) === AIR) {
+          set(blocks, x, y, z, LAVA);
+          y--;
+        }
+      }
+      if (rng() < 0.012) {
+        let y = 40;
+        while (y > 4 && get(blocks, x, y, z) === AIR) y--;
+        if (get(blocks, x, y, z) === SOUL_SAND) {
+          set(blocks, x, y + 1, z, NETHER_WART_BLOCK);
+        }
       }
     }
   }

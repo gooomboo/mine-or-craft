@@ -101,6 +101,29 @@ export class GameAudio {
     this.noise(0.4, 0.25, 400);
     this.beep(60, 0.4, "sawtooth", 0.12, -40);
   }
+  jump() {
+    this.beep(280, 0.08, "square", 0.05, -40);
+    this.noise(0.04, 0.03, 900);
+  }
+  land() {
+    this.noise(0.07, 0.06, 500);
+    this.beep(90, 0.05, "triangle", 0.04);
+  }
+  eat() {
+    this.noise(0.12, 0.05, 1400);
+    this.beep(180, 0.08, "square", 0.04);
+  }
+  bow() {
+    this.beep(520, 0.06, "triangle", 0.07, -120);
+  }
+  splash() {
+    this.noise(0.18, 0.08, 1800);
+    this.beep(240, 0.1, "sine", 0.04, -80);
+  }
+  blockHit() {
+    this.beep(160, 0.05, "square", 0.08);
+    this.noise(0.06, 0.05, 700);
+  }
   dragon() {
     this.beep(80, 0.8, "sawtooth", 0.1, 40);
   }
@@ -111,20 +134,26 @@ export class GameAudio {
   tickMusic(dt: number, night: boolean, nether: boolean, end: boolean) {
     this.musicTimer += dt;
     if (!this.ctx || !this.music) return;
-    if (this.musicTimer > 18) {
+    if (this.musicTimer > 16) {
       this.musicTimer = 0;
-      const base = end ? 48 : nether ? 55 : night ? 62 : 78;
-      const o = this.ctx.createOscillator();
-      const g = this.ctx.createGain();
-      o.type = "sine";
-      o.frequency.value = base;
-      g.gain.setValueAtTime(0.0001, this.ctx.currentTime);
-      g.gain.linearRampToValueAtTime(0.04, this.ctx.currentTime + 2);
-      g.gain.linearRampToValueAtTime(0.0001, this.ctx.currentTime + 12);
-      o.connect(g);
-      g.connect(this.music);
-      o.start();
-      o.stop(this.ctx.currentTime + 12.2);
+      const base = end ? 46 : nether ? 52 : night ? 60 : 74;
+      const third = base * (nether ? 1.26 : 1.25);
+      const fifth = base * (end ? 1.5 : 1.5);
+      const now = this.ctx.currentTime;
+      const chord = [base, third, fifth];
+      for (let i = 0; i < chord.length; i++) {
+        const o = this.ctx.createOscillator();
+        const g = this.ctx.createGain();
+        o.type = i === 0 ? "sine" : "triangle";
+        o.frequency.value = chord[i]!;
+        g.gain.setValueAtTime(0.0001, now);
+        g.gain.linearRampToValueAtTime(0.028 - i * 0.006, now + 1.8);
+        g.gain.linearRampToValueAtTime(0.0001, now + 11);
+        o.connect(g);
+        g.connect(this.music);
+        o.start(now);
+        o.stop(now + 11.2);
+      }
     }
   }
 }

@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { DEFAULT_SETTINGS, type CameraMode, type CrosshairStyle, type GameMode, type Settings, type Slot, type WorldMeta } from "@/game/types";
 import { loadProfile, loadSettingsRaw, loadWorlds, saveProfile, saveSettingsRaw, saveWorlds, type Profile } from "@/game/save";
 
-export type Phase = "title" | "menu" | "worlds" | "create" | "lobby" | "skins" | "loading" | "playing";
+export type Phase = "title" | "menu" | "worlds" | "create" | "lobby" | "skins" | "minigames" | "workshop" | "loading" | "playing";
 export type Overlay =
   | "none"
   | "pause"

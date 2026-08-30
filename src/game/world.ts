@@ -3,7 +3,7 @@ import type { Atlas } from "./atlas";
 import { BLOCKS, isSolid } from "./blocks";
 import { generateChunk, makeNoises, type ChunkData, type Noises } from "./gen";
 import { meshChunk } from "./mesher";
-import { CHUNK_H, CHUNK_W, chunkKey, worldToChunk, localCoord, type Dim } from "./types";
+import { CHUNK_H, CHUNK_W, chunkKey, worldToChunk, localCoord, type ArenaId, type Dim } from "./types";
 
 export interface Chunk {
   cx: number;
@@ -31,7 +31,7 @@ export class World {
   private buildQueue: Chunk[] = [];
   private lastPlayer = { x: 0, z: 0 };
   shadows = false;
-  arena: "duel" | null = null;
+  arena: ArenaId | null = null;
 
   constructor(scene: THREE.Scene, atlas: Atlas, seed: number) {
     this.scene = scene;
