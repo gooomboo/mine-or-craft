@@ -373,12 +373,30 @@ export class Engine {
       await new Promise((r) => setTimeout(r, 0));
     }
     if (!save) {
-      this.player.y = this.world.highestSolid(this.player.x, this.player.z) + 2;
+      if (this.meta.arena === "duel") {
+        this.player.x = 0.5;
+        this.player.y = 34;
+        this.player.z = -16.5;
+        this.worldTime = DAY_LEN * 0.48;
+      } else {
+        this.player.y = this.world.highestSolid(this.player.x, this.player.z) + 2;
+      }
     }
     this.applyDimVisuals();
     if (this.meta.arena === "duel") {
+      this.worldTime = DAY_LEN * 0.42;
+      if (this.player.y < 30) {
+        this.player.x = 0.5;
+        this.player.y = 34;
+        this.player.z = -16.5;
+      }
       this.giveDuelKit(!!save);
-      const bot = spawnMob("duelist", 0.5, this.world.highestSolid(0.5, 16.5) + 1, 16.5, this.scene);
+      this.player.yaw = Math.PI;
+      this.player.pitch = 0;
+      this.sun.intensity = 1.45;
+      this.hemi.intensity = 0.9;
+      const botY = Math.max(33, this.world.highestSolid(0.5, 16.5) + 1);
+      const bot = spawnMob("duelist", 0.5, botY, 16.5, this.scene);
       this.mobs.push(bot);
       this.toastMsg("DUAL — fight with sword, shield, and golden apples.");
       this.chat.push("Official server Dual, hosted by Mods. Last fighter standing.");
@@ -468,7 +486,8 @@ export class Engine {
       this.skyUniforms.bottomColor.value.set(0xd4ecff);
       this.hemi.color.set(0xbfd4ff);
       this.hemi.groundColor.set(0x3a2a18);
-      this.sun.intensity = 1.15;
+      this.sun.intensity = this.meta.arena === "duel" ? 1.45 : 1.15;
+      this.hemi.intensity = this.meta.arena === "duel" ? 0.9 : 0.7;
       this.sunMesh.visible = this.settings.sunMoon;
       this.moonMesh.visible = this.settings.sunMoon;
     }
