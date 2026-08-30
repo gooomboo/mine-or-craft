@@ -390,6 +390,8 @@ export class Engine {
         this.player.y = 34;
         this.player.z = -16.5;
       }
+      this.player.difficulty = "hard";
+      this.settings.difficulty = "hard";
       this.giveDuelKit(!!save);
       this.player.yaw = Math.PI;
       this.player.pitch = 0;
@@ -864,8 +866,10 @@ export class Engine {
       (m, dmg, kb) => {
         this.player.hurtBy(dmg, m.kind);
         this.player.applyKnockback(this.player.x - m.x, this.player.z - m.z, kb);
-        this.trauma = Math.min(1, this.trauma + 0.18);
-        this.camPunch = 0.12;
+        this.trauma = Math.min(1, this.trauma + 0.28);
+        this.camPunch = 0.18;
+        this.hitFlash = 0.22;
+        if (m.kind === "duelist") this.toastMsg(this.player.blocking ? "Blocked!" : "Hit!");
       },
     );
     for (const m of this.mobs) {

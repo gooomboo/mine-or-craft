@@ -357,7 +357,7 @@ const STATS: Record<MobKind, { hp: number; hostile: boolean; speed: number; dmg:
   wraith: { hp: 200, hostile: true, speed: 3.4, dmg: 40 },
   dragon: { hp: 200, hostile: true, speed: 8, dmg: 10 },
   wither: { hp: 300, hostile: true, speed: 2.2, dmg: 12 },
-  duelist: { hp: 20, hostile: true, speed: 5.2, dmg: 7 },
+  duelist: { hp: 20, hostile: true, speed: 5.6, dmg: 8 },
   bee: { hp: 10, hostile: false, speed: 2.4, dmg: 2 },
   polar_bear: { hp: 30, hostile: true, speed: 2.2, dmg: 6 },
   panda: { hp: 20, hostile: false, speed: 1.4, dmg: 0 },
@@ -594,47 +594,53 @@ function tickDuelist(
   onHitPlayer?: (m: Mob, dmg: number, kb: number) => void,
 ) {
   m.yaw = Math.atan2(dx, dz);
-  const strafe = Math.sin(m.age * 3.2) * 2.4;
-  const px = -dz / (dist || 1);
-  const pz = dx / (dist || 1);
-  let tx = 0,
-    tz = 0;
-  if (dist > 2.4) {
-    tx = (dx / dist) * st.speed + px * strafe * 0.35;
-    tz = (dz / dist) * st.speed + pz * strafe * 0.35;
-  } else if (dist < 1.35) {
-    tx = -(dx / dist) * 2.2 + px * strafe;
-    tz = -(dz / dist) * 2.2 + pz * strafe;
-  } else {
-    tx = px * strafe;
-    tz = pz * strafe;
-  }
-  m.vx = tx;
-  m.vz = tz;
+  const nx = dx / (dist || 1);
+  const nz = dz / (dist || 1);
+  const sx = -nz;
+  const sz = nx;
+  const strafe = Math.sin(m.age * 4.6) * 3.4;
+  let close = 0;
+  if (dist > 1.2) close = st.speed;
+  else if (dist < 0.85) close = -2.6;
+  m.vx = nx * close + sx * strafe;
+  m.vz = nz * close + sz * strafe;
   m.vy -= 28 * dt;
-  if (dist > 1.5 && dist < 4 && m.age % 1.8 < dt) m.vy = 8.2;
+  if (dist < 3.4 && m.vy <= 0.05 && m.age % 0.85 < dt * 2.2) m.vy = 8.5;
   m.x += m.vx * dt;
-  if (collides(world, m)) m.x -= m.vx * dt;
+  if (collides(world, m)) {
+    m.y += 0.55;
+    if (collides(world, m)) {
+      m.y -= 0.55;
+      m.x -= m.vx * dt;
+    }
+  }
   m.z += m.vz * dt;
-  if (collides(world, m)) m.z -= m.vz * dt;
+  if (collides(world, m)) {
+    m.y += 0.55;
+    if (collides(world, m)) {
+      m.y -= 0.55;
+      m.z -= m.vz * dt;
+    }
+  }
   m.y += m.vy * dt;
   if (collides(world, m)) {
     m.y -= m.vy * dt;
-    if (m.vy < 0) m.vy = 0;
-    else m.vy = 0;
+    m.vy = 0;
   }
-  m.blocking = dist < 2.8 && Math.sin(m.age * 2.1) > 0.35;
-  if (m.hp < 10 && m.age % 4 < dt) m.hp = Math.min(m.max, m.hp + 4);
+  m.blocking = dist < 2.2 && dist > 1.15 && Math.sin(m.age * 1.6) > 0.55;
+  if (m.hp < 12 && m.age % 3.2 < dt * 2) m.hp = Math.min(m.max, m.hp + 4);
   m.mesh.position.set(m.x, m.y, m.z);
   m.mesh.rotation.y = m.yaw;
   swingLimbs(m.mesh, m.age, 14, 0.7);
-  if (dist3 < 1.7 && (!m.cooldown || m.cooldown <= 0)) {
-    const crit = m.vy < -0.2;
+  const dy = Math.abs(player.y + 0.9 - (m.y + 0.9));
+  if (dist < 3.1 && dy < 2.4 && (!m.cooldown || m.cooldown <= 0)) {
+    const crit = m.vy < -0.12;
     const dmg = st.dmg * (crit ? 1.5 : 1);
-    if (onHitPlayer) onHitPlayer(m, dmg, crit ? 9 : 7);
+    if (onHitPlayer) onHitPlayer(m, dmg, crit ? 10 : 7.5);
     else player.hurtBy(dmg, "duelist");
     m.cooldown = 0.55;
   }
+  void dist3;
 }
 
 function collides(world: World, m: Mob): boolean {

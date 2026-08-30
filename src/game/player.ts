@@ -259,14 +259,15 @@ export class Player {
 
   hurtBy(amount: number, _src: string) {
     if (this.invincible || this.mode === "creative") return;
-    if (this.hurt > (this.mode === "survival" ? 0.32 : 0.42) && amount < 5) return;
+    if (_src !== "duelist" && this.hurt > (this.mode === "survival" ? 0.32 : 0.42) && amount < 5) return;
     let a = amount;
-    if (this.difficulty === "peaceful" && _src !== "void" && _src !== "drown" && _src !== "starve") a = 0;
+    if (this.difficulty === "peaceful" && _src !== "void" && _src !== "drown" && _src !== "starve" && _src !== "duelist") a = 0;
     if (this.difficulty === "easy") a *= 0.6;
-    if (this.difficulty === "hard") a *= 1.4;
+    if (this.difficulty === "hard") a *= 1.25;
     if (this.blocking) a *= 0.33;
     const ar = this.armorPoints();
-    a *= 1 - Math.min(0.8, ar / 25);
+    const red = Math.min(20, Math.max(ar / 5, ar - a / 2)) / 25;
+    a *= 1 - Math.min(0.8, Math.max(0, red));
     if (this.absorption > 0) {
       const take = Math.min(this.absorption, a);
       this.absorption -= take;
