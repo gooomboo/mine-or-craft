@@ -1,11 +1,32 @@
 import * as THREE from "three";
 import { animateAtlas, createAtlas, type Atlas } from "./atlas";
-import { BLOCKS, CRAFTING_TABLE, END_PORTAL, FIRE, FURNACE, LAVA, NETHER_PORTAL, OBSIDIAN, WATER } from "./blocks";
+import { BLOCKS, COBBLE, CRAFTING_TABLE, END_PORTAL, FIRE, FURNACE, LAVA, NETHER_PORTAL, OBSIDIAN, WATER } from "./blocks";
 import { GameAudio } from "./audio";
 import { findSpawn, strongholdChunk, biomeAtIndex } from "./gen";
 import { Input } from "./input";
-import { getDef, FLINT_STEEL, ITEM_BASE } from "./items";
+import {
+  getDef,
+  FLINT_STEEL,
+  ITEM_BASE,
+  DIAMOND_SWORD,
+  SHIELD,
+  GOLDEN_APPLE,
+  BOW,
+  ARROW,
+  ENDER_PEARL,
+  WATER_BUCKET,
+  COOKED_BEEF,
+  DIAMOND_HELM,
+  DIAMOND_CHEST,
+  DIAMOND_LEGS,
+  DIAMOND_BOOTS,
+  DIAMOND_AXE,
+  LAVA_BUCKET,
+  FISHING_ROD,
+} from "./items";
 import { disposeMob, hitMob, spawnMob, trySpawn, updateMobs, type Mob } from "./mobs";
+import { addHeld, addHumanoid, buildViewArm, fillHeld, heldKind, hexNum, swingLimbs } from "./models";
+import { SKIN_PRESETS } from "./skins";
 import { Player } from "./player";
 import { voxelRay } from "./raycast";
 import { saveChunks, savePlayer } from "./save";
@@ -78,7 +99,14 @@ export class Engine {
   sky: THREE.Mesh;
   camOffset = new THREE.Vector3();
   moveF = new THREE.Vector3();
+  camPunch = 0;
+  wasOnGround = true;
+  dualKills = 0;
+  hitFlash = 0;
   moveR = new THREE.Vector3();
+  hitstop = 0;
+  lastHeld = -1;
+  camRoll = 0;
   breaking = 0;
   lastStep = 0;
   lastInput = 0;
@@ -139,6 +167,7 @@ export class Engine {
     this.scene.add(this.sun.target);
     this.atlas = createAtlas();
     this.world = new World(this.scene, this.atlas, meta.seed);
+    this.world.arena = meta.arena ?? null;
     this.world.setFancyWater(settings.fancyWater);
     this.world.setShadows(settings.shadows && settings.graphics === "fabulous");
     this.player = new Player();
@@ -206,34 +235,23 @@ export class Engine {
     this.highlight = new THREE.LineSegments(hg, new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 1 }));
     this.scene.add(this.highlight);
 
-    this.hand = new THREE.Group();
-    const cube = new THREE.Mesh(
-      new THREE.BoxGeometry(0.22, 0.22, 0.32),
-      new THREE.MeshLambertMaterial({ color: 0xc4a06a }),
-    );
-    cube.position.set(0.32, -0.24, -0.52);
-    cube.rotation.set(0.35, 0.55, 0.18);
-    this.hand.add(cube);
+    this.hand = buildViewArm(0xc4a06a);
     this.camera.add(this.hand);
     this.scene.add(this.camera);
 
     this.playerBody = new THREE.Group();
-    const skin = new THREE.MeshLambertMaterial({ color: 0xc68642 });
-    const shirt = new THREE.MeshLambertMaterial({ color: 0x3a8fd0 });
-    const pants = new THREE.MeshLambertMaterial({ color: 0x3d4a8c });
-    const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.5, 0.5), skin);
-    head.position.y = 1.55;
-    const body = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.7, 0.28), shirt);
-    body.position.y = 0.95;
-    const legL = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.7, 0.22), pants);
-    legL.position.set(-0.12, 0.35, 0);
-    const legR = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.7, 0.22), pants);
-    legR.position.set(0.12, 0.35, 0);
-    const armL = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.7, 0.2), shirt);
-    armL.position.set(-0.36, 0.95, 0);
-    const armR = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.7, 0.2), shirt);
-    armR.position.set(0.36, 0.95, 0);
-    this.playerBody.add(head, body, legL, legR, armL, armR);
+    const skinId = useApp.getState().profile.skin;
+    const skin =
+      SKIN_PRESETS.find((s) => s.id === skinId) ?? SKIN_PRESETS[0]!;
+    addHumanoid(this.playerBody, {
+      skin: hexNum(skin.skin),
+      shirt: hexNum(skin.shirt),
+      pants: hexNum(skin.pants),
+      hair: hexNum(skin.hair),
+      shoes: 0x1a1a1a,
+      eyes: 0x1a2a4a,
+    });
+    addHeld(this.playerBody, "none");
     this.playerBody.visible = false;
     this.scene.add(this.playerBody);
 
@@ -310,7 +328,8 @@ export class Engine {
 
   async boot(save: PlayerSave | null, edits: Map<string, Uint16Array>) {
     this.world.edits = edits;
-    const spawn = findSpawn(this.meta.seed, this.world.noises);
+    let spawn = findSpawn(this.meta.seed, this.world.noises);
+    if (this.meta.arena === "duel") spawn = { x: 0.5, y: 34, z: -16.5 };
     this.meta.spawn = spawn;
     if (save) {
       this.player.x = save.x;
@@ -357,12 +376,67 @@ export class Engine {
       this.player.y = this.world.highestSolid(this.player.x, this.player.z) + 2;
     }
     this.applyDimVisuals();
+    if (this.meta.arena === "duel") {
+      this.giveDuelKit(!!save);
+      const bot = spawnMob("duelist", 0.5, this.world.highestSolid(0.5, 16.5) + 1, 16.5, this.scene);
+      this.mobs.push(bot);
+      this.toastMsg("DUAL — fight with sword, shield, and golden apples.");
+      this.chat.push("Official server Dual, hosted by Mods. Last fighter standing.");
+    }
     this.running = true;
     this.last = performance.now();
     this.loop(this.last);
     this.installControlsTest();
     this.chat.push("Welcome to Mine or Craft.");
-    this.chat.push("Punch a tree. Craft a bench. Survive the night.");
+    if (this.meta.arena !== "duel") this.chat.push("Punch a tree. Craft a bench. Survive the night.");
+  }
+
+  giveDuelKit(keepIfFilled: boolean) {
+    if (keepIfFilled && this.player.inventory.some((s) => s)) return;
+    this.player.inventory = Array.from({ length: 36 }, () => null);
+    this.player.give(DIAMOND_SWORD, 1);
+    this.player.give(DIAMOND_AXE, 1);
+    this.player.give(GOLDEN_APPLE, 8);
+    this.player.give(BOW, 1);
+    this.player.give(ARROW, 32);
+    this.player.give(ENDER_PEARL, 16);
+    this.player.give(COBBLE, 64);
+    this.player.give(WATER_BUCKET, 1);
+    this.player.give(LAVA_BUCKET, 1);
+    this.player.give(FISHING_ROD, 1);
+    this.player.give(COOKED_BEEF, 16);
+    this.player.give(FLINT_STEEL, 1);
+    this.player.offhand = { id: SHIELD, count: 1 };
+    this.player.armor = [
+      { id: DIAMOND_HELM, count: 1 },
+      { id: DIAMOND_CHEST, count: 1 },
+      { id: DIAMOND_LEGS, count: 1 },
+      { id: DIAMOND_BOOTS, count: 1 },
+    ];
+    this.player.hotbar = 0;
+    this.player.health = 20;
+    this.player.hunger = 20;
+    this.player.absorption = 0;
+    this.dressPlayer(true);
+  }
+
+  dressPlayer(armored: boolean) {
+    const skinId = useApp.getState().profile.skin;
+    const skin = SKIN_PRESETS.find((s) => s.id === skinId) ?? SKIN_PRESETS[0]!;
+    while (this.playerBody.children.length) this.playerBody.remove(this.playerBody.children[0]!);
+    addHumanoid(this.playerBody, {
+      skin: hexNum(skin.skin),
+      shirt: armored ? 0x5adce6 : hexNum(skin.shirt),
+      pants: armored ? 0x3aa8b0 : hexNum(skin.pants),
+      hair: hexNum(skin.hair),
+      shoes: armored ? 0x5adce6 : 0x1a1a1a,
+      eyes: 0x1a2a4a,
+      helm: armored ? 0x5adce6 : undefined,
+      chest: armored ? 0x5adce6 : undefined,
+      boots: armored ? 0x5adce6 : undefined,
+    });
+    const kind = heldKind(this.player.selected?.id ?? 0);
+    addHeld(this.playerBody, kind, getDef(this.player.selected?.id ?? 0)?.tint ?? 0x5adce6);
   }
 
   applyDimVisuals() {
@@ -441,6 +515,11 @@ export class Engine {
       this.renderer.render(this.scene, this.camera);
       return;
     }
+    if (this.hitstop > 0) {
+      this.hitstop -= dt;
+      this.render(dt);
+      return;
+    }
     this.acc += dt;
     const step = 1 / 60;
     const input = this.input.poll();
@@ -498,35 +577,37 @@ export class Engine {
       this.highlight.position.set(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5);
       const def = BLOCKS[this.world.getBlock(hit.x, hit.y, hit.z)];
       this.targeting = def?.name ?? "";
-      if (input.attack && this.player.mode !== "creative") {
-        this.mine(hit, dt);
-      } else if (input.justAttack && this.player.mode === "creative") {
-        this.breakBlock(hit.x, hit.y, hit.z);
-      } else if (!input.attack) {
-        this.breaking = 0;
-        this.player.miningPos = null;
-      }
-      if (input.justUse) this.use(hit);
     } else {
       this.highlight.visible = false;
       this.targeting = "";
-      this.breaking = 0;
-      if (input.justAttack) {
-        const dir = this.player.lookDir();
-        const mob = hitMob(
-          this.mobs,
-          this.player.x + dir.x * 2,
-          this.player.eyeY() + dir.y * 2,
-          this.player.z + dir.z * 2,
-          this.attackDamage(),
-        );
-        if (mob) {
-          this.audio.hit();
-          this.player.swing = 1;
-          if (mob.hp <= 0) this.killMob(mob);
-        }
-      }
     }
+
+    if (input.justAttack) this.tryMelee(look);
+    if (input.attack && hit && this.player.mode !== "creative") {
+      this.mine(hit, dt);
+    } else if (input.justAttack && hit && this.player.mode === "creative") {
+      this.breakBlock(hit.x, hit.y, hit.z);
+    } else if (!input.attack) {
+      this.breaking = 0;
+      this.player.miningPos = null;
+    }
+    if (input.justUse) {
+      if (this.player.selected?.id === ENDER_PEARL) this.throwPearl(look);
+      else if (hit) this.use(hit);
+      else this.player.eat();
+    }
+
+    if (this.player.onGround && !this.wasOnGround) {
+      this.burst(this.player.x, this.player.y + 0.1, this.player.z, 0xc4b48a);
+      this.trauma = Math.min(1, this.trauma + 0.08);
+      this.player.squash = 0.72;
+    }
+    if (this.player.sprinting && this.player.onGround && Math.random() < dt * 8) {
+      this.burst(this.player.x, this.player.y + 0.05, this.player.z, 0xc4b48a);
+    }
+    this.wasOnGround = this.player.onGround;
+    this.camPunch = Math.max(0, this.camPunch - dt * 3.2);
+    this.hitFlash = Math.max(0, this.hitFlash - dt * 4);
 
     if (input.justDrop) {
       this.player.takeSelected(1);
@@ -748,7 +829,7 @@ export class Engine {
 
   private tickMobs(dt: number) {
     this.spawnTimer += dt;
-    if (this.spawnTimer > 4) {
+    if (this.spawnTimer > 4 && this.meta.arena !== "duel") {
       this.spawnTimer = 0;
       const m = trySpawn(this.scene, this.world, this.player, this.mobs, this.isNight(), this.meta.seed, this.settings.difficulty);
       if (m) this.mobs.push(m);
@@ -760,7 +841,13 @@ export class Engine {
       this.player,
       this.isNight(),
       (x, y, z, r) => this.explode(x, y, z, r),
-      this.player.flying && !this.player.onGround,
+      this.player.flying && this.player.mode === "creative",
+      (m, dmg, kb) => {
+        this.player.hurtBy(dmg, m.kind);
+        this.player.applyKnockback(this.player.x - m.x, this.player.z - m.z, kb);
+        this.trauma = Math.min(1, this.trauma + 0.18);
+        this.camPunch = 0.12;
+      },
     );
     for (const m of this.mobs) {
       if (!m.dead && m.hp <= 0) this.killMob(m);
@@ -780,7 +867,7 @@ export class Engine {
   }
 
   private tickWraith(dt: number) {
-    if (this.killedDragon) return;
+    if (this.killedDragon || this.meta.arena === "duel") return;
     if (this.overlay !== "none") return;
     if (this.afk > 240 && !this.wraith) {
       const f = this.player.forward();
@@ -879,10 +966,88 @@ export class Engine {
     if (m.kind === "zombie") this.player.give(10118, 1);
     if (m.kind === "skeleton") this.player.give(10033, 2);
     if (m.kind === "enderman") this.player.give(10061, 1);
+    if (m.kind === "duelist") {
+      this.dualKills++;
+      this.player.kills++;
+      this.toastMsg(`Kill ${this.dualKills} — next duelist incoming.`);
+      setTimeout(() => {
+        if (!this.running) return;
+        const bot = spawnMob("duelist", 0.5, this.world.highestSolid(0.5, 16.5) + 1, 16.5, this.scene);
+        this.mobs.push(bot);
+      }, 1600);
+    }
   }
 
   attackDamage() {
     return getDef(this.player.selected?.id ?? 0)?.damage ?? 1;
+  }
+
+  tryMelee(dir: { x: number; y: number; z: number }) {
+    this.player.swing = 1;
+    const cd = this.player.attackCdMax <= 0 ? 1 : 1 - this.player.attackCd / this.player.attackCdMax;
+    const factor = 0.2 + 0.8 * cd * cd;
+    const crit = !this.player.onGround && this.player.vy < -0.15 && cd > 0.85;
+    const dmg = this.attackDamage() * factor * (crit ? 1.5 : 1);
+    const sprintKb = this.player.sprinting ? 4.2 : 0;
+    const kb = {
+      x: dir.x * (6.2 + sprintKb) * factor,
+      y: crit ? 5.2 : 3.4,
+      z: dir.z * (6.2 + sprintKb) * factor,
+    };
+    const mob = hitMob(
+      this.mobs,
+      this.player.x + dir.x * 2.1,
+      this.player.eyeY() + dir.y * 2.1,
+      this.player.z + dir.z * 2.1,
+      dmg,
+      kb,
+    );
+    this.player.attackCd = this.player.attackCdMax;
+    const tool = getDef(this.player.selected?.id ?? 0);
+    if (tool?.tool === "axe" && mob?.blocking) {
+      mob.blocking = false;
+      this.toastMsg("Shield disabled!");
+    }
+    if (this.player.selected?.id === FISHING_ROD && mob) {
+      mob.vx += dir.x * 5.5;
+      mob.vz += dir.z * 5.5;
+      mob.vy += 2.2;
+    }
+    if (mob) {
+      this.audio.hit();
+      this.camPunch = crit ? 0.32 : 0.14;
+      this.hitFlash = 0.18;
+      this.trauma = Math.min(1, this.trauma + (crit ? 0.28 : 0.14));
+      this.hitstop = crit ? 0.055 : 0.02;
+      this.burst(mob.x, mob.y + 1, mob.z, crit ? 0xfff1a8 : 0xc45c4a);
+      if (mob.hp <= 0) this.killMob(mob);
+    }
+  }
+
+  throwPearl(dir: { x: number; y: number; z: number }) {
+    const s = this.player.selected;
+    if (!s || s.id !== ENDER_PEARL) return;
+    if (this.player.mode !== "creative") this.player.takeSelected(1);
+    let x = this.player.x;
+    let y = this.player.eyeY();
+    let z = this.player.z;
+    for (let i = 0; i < 28; i++) {
+      x += dir.x;
+      y += dir.y;
+      z += dir.z;
+      if (this.world.getBlock(Math.floor(x), Math.floor(y), Math.floor(z))) {
+        x -= dir.x;
+        y -= dir.y;
+        z -= dir.z;
+        break;
+      }
+    }
+    this.player.x = x;
+    this.player.y = Math.max(1, y);
+    this.player.z = z;
+    this.player.hurtBy(2.5, "pearl");
+    this.burst(x, y, z, 0x1a6a5a);
+    this.audio.portal();
   }
 
   addXp(n: number) {
@@ -956,6 +1121,7 @@ export class Engine {
   }
 
   private render(dt: number) {
+    this.time += dt;
     const day = (this.worldTime / DAY_LEN) % 1;
     const sunA = day * Math.PI * 2 - Math.PI / 2;
     const sunH = Math.sin(sunA);
@@ -1010,8 +1176,9 @@ export class Engine {
 
     this.trauma = Math.max(0, this.trauma - dt * 2.4);
     const shakeAmt = reduced ? 0 : this.trauma * this.trauma * this.settings.screenShake;
+    const punch = reduced ? 0 : this.camPunch;
     const sx = (Math.random() - 0.5) * 0.18 * shakeAmt;
-    const sy = (Math.random() - 0.5) * 0.18 * shakeAmt;
+    const sy = (Math.random() - 0.5) * 0.18 * shakeAmt - punch * 0.12;
     const sz = (Math.random() - 0.5) * 0.18 * shakeAmt;
 
     const mode = this.settings.cameraMode;
@@ -1019,13 +1186,26 @@ export class Engine {
     this.playerBody.visible = mode !== "first";
     this.playerBody.position.set(this.player.x, this.player.y, this.player.z);
     this.playerBody.rotation.y = this.player.yaw;
+    this.playerBody.scale.set(1 / this.player.squash, this.player.squash, 1 / this.player.squash);
+    const spd = Math.hypot(this.player.vx, this.player.vz);
+    swingLimbs(this.playerBody, this.time, 9, Math.min(0.7, spd * 0.12));
     this.hand.visible = mode === "first" && this.settings.heldItem && this.overlay === "none";
+    const hid = this.player.selected?.id ?? 0;
+    if (hid !== this.lastHeld) {
+      this.lastHeld = hid;
+      const kind = heldKind(hid);
+      const item = this.hand.userData.item as THREE.Group | undefined;
+      if (item) fillHeld(item, kind, getDef(hid)?.tint ?? 0x5adce6);
+    }
 
     if (mode === "first") {
+      const wishRoll = this.player.vx !== 0 || this.player.vz !== 0 ? -this.input.actions.moveX * 0.035 : 0;
+      this.camRoll += (wishRoll - this.camRoll) * (1 - Math.exp(-10 * dt));
       this.camera.position.set(px + sx, py + bob + sy, pz + sz);
       this.camera.rotation.order = "YXZ";
       this.camera.rotation.y = this.player.yaw;
       this.camera.rotation.x = this.player.pitch;
+      this.camera.rotation.z = this.settings.reducedMotion ? 0 : this.camRoll;
     } else {
       const dist = mode === "front" ? 3.2 : 4.2;
       const sign = mode === "front" ? 1 : -1;
@@ -1089,6 +1269,12 @@ export class Engine {
     });
 
     animateAtlas(this.atlas, this.worldTime);
+    if (this.settings.particles && this.dim === "nether" && Math.random() < dt * 14) {
+      this.burst(px + (Math.random() - 0.5) * 8, py + Math.random() * 4, pz + (Math.random() - 0.5) * 8, 0xf07818);
+    }
+    if (this.settings.particles && this.dim === "end" && Math.random() < dt * 10) {
+      this.burst(px + (Math.random() - 0.5) * 10, py + Math.random() * 5, pz + (Math.random() - 0.5) * 10, 0xe050e0);
+    }
     this.renderer.render(this.scene, this.camera);
     if (this.toastT > 0) this.toastT -= dt;
     else this.toast = "";
@@ -1132,6 +1318,12 @@ export class Engine {
       mining: this.breaking,
       cameraMode: this.settings.cameraMode,
       crosshair: this.settings.crosshair,
+      attackCd: this.player.attackCdMax <= 0 ? 1 : 1 - this.player.attackCd / this.player.attackCdMax,
+      absorption: this.player.absorption,
+      arena: this.meta.arena,
+      kills: this.dualKills,
+      hitFlash: this.hitFlash,
+      blocking: this.player.blocking,
     };
     this.hooks.onHud(snap);
   }
@@ -1263,6 +1455,18 @@ export class Engine {
         useApp.getState().setSettings({ difficulty: d });
         return "Difficulty: " + d;
       }
+    }
+    if (c === "/nether" || (c === "/dim" && p[1] === "nether")) {
+      this.changeDim("nether");
+      return "The Nether.";
+    }
+    if (c === "/end" || (c === "/dim" && p[1] === "end")) {
+      this.changeDim("end");
+      return "The End.";
+    }
+    if (c === "/overworld" || (c === "/dim" && p[1] === "overworld")) {
+      this.changeDim("overworld");
+      return "Overworld.";
     }
     return "Unknown command.";
   }

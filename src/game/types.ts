@@ -80,6 +80,7 @@ export interface WorldMeta {
   published?: boolean;
   priceXp?: number;
   code?: string;
+  arena?: "duel";
 }
 
 export interface PlayerSave {

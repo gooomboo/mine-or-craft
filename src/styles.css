@@ -457,4 +457,76 @@
   .mc-pano-strip {
     animation: none;
   }
+  .mc-splash {
+    animation: none;
+  }
+}
+
+.mc-splash {
+  color: #ffff55;
+  transform: rotate(-22deg);
+  text-shadow: 2px 2px 0 #3f3f00;
+  animation: mc-splash-pop 0.45s ease-in-out infinite alternate;
+  pointer-events: none;
+}
+
+@keyframes mc-splash-pop {
+  from {
+    transform: rotate(-22deg) scale(1);
+  }
+  to {
+    transform: rotate(-22deg) scale(1.12);
+  }
+}
+
+.mc-btn-dual {
+  background: #3a5a9a !important;
+  box-shadow:
+    inset 2px 2px 0 #7a9ad0,
+    inset -2px -2px 0 #1a2a4a !important;
+}
+
+.mc-menu-stack {
+  background: #00000055;
+  border: 2px solid #00000088;
+  box-shadow: inset 0 0 0 1px #ffffff18;
+}
+
+.mc-pano-nether {
+  background: linear-gradient(#3a0c0c 0 40%, #6a2010 40% 62%, #2a0808 62%);
+}
+.mc-pano-nether .mc-hill {
+  background: #4a1810;
+}
+.mc-pano-nether .mc-pano-ground {
+  background: #2a0808;
+}
+.mc-pano-nether .mc-tree,
+.mc-pano-nether .mc-trunk {
+  display: none;
+}
+.mc-pano-nether .mc-pano-sun {
+  background: #f07818;
+  box-shadow: 0 0 60px #c45c1acc;
+}
+
+.mc-pano-end {
+  background: linear-gradient(#05040a 0 48%, #1a1430 48% 70%, #0a0814 70%);
+}
+.mc-pano-end .mc-hill {
+  background: #2a1840;
+  height: 18%;
+}
+.mc-pano-end .mc-pano-ground {
+  background: #161022;
+}
+.mc-pano-end .mc-tree {
+  border-bottom-color: #8a6ab4;
+}
+.mc-pano-end .mc-pano-sun {
+  display: none;
+}
+.mc-pano-end .mc-pano-moon {
+  display: block;
+  background: #c8a0e0;
 }

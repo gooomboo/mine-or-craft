@@ -89,6 +89,11 @@ import {
   NETHER_WART_BLOCK,
   QUARTZ_ORE,
   ANCIENT_DEBRIS,
+  STONE_BRICKS,
+  IRON_BLOCK,
+  QUARTZ_BLOCK,
+  NETHER_BRICKS,
+  NETHER_PORTAL,
 } from "./blocks";
 import { BIOMES, pickNether, pickOverworld, type Biome, type BiomeId } from "./biomes";
 import { hash2, hash3, mixSeed, mulberry32 } from "./rng";
@@ -251,11 +256,63 @@ function netherFungus(blocks: Uint16Array, x: number, y: number, z: number, warp
   set(blocks, x, y + h - 1, z, SHROOMLIGHT);
 }
 
-export function generateChunk(seed: number, cx: number, cz: number, dim: Dim, noises: Noises): ChunkData {
+function genDuel(blocks: Uint16Array, biomes: Uint8Array, cx: number, cz: number) {
+  biomes.fill(BIOME_TO_I.get("plains") ?? 0);
+  const floor = 32;
+  for (let z = 0; z < CHUNK_W; z++) {
+    for (let x = 0; x < CHUNK_W; x++) {
+      const wx = cx * CHUNK_W + x;
+      const wz = cz * CHUNK_W + z;
+      const ax = Math.abs(wx);
+      const az = Math.abs(wz);
+      set(blocks, x, 0, z, BEDROCK);
+      if (ax > 30 || az > 30) {
+        for (let y = 1; y <= 10; y++) set(blocks, x, y, z, LAVA);
+        continue;
+      }
+      if (ax > 24 || az > 24) {
+        for (let y = 1; y <= 46; y++) set(blocks, x, y, z, BLACKSTONE);
+        if (ax === 25 && wz % 4 === 0) set(blocks, x, 46, z, GLOWSTONE);
+        if (az === 25 && wx % 4 === 0) set(blocks, x, 46, z, GLOWSTONE);
+        continue;
+      }
+      const check = (wx + wz) & 1;
+      set(blocks, x, floor, z, check ? STONE_BRICKS : QUARTZ_BLOCK);
+      for (let y = 1; y < floor; y++) set(blocks, x, y, z, BLACKSTONE);
+      if (ax <= 2 && az <= 2) set(blocks, x, floor, z, OBSIDIAN);
+      if (Math.abs(wz + 16) <= 1 && ax <= 2) set(blocks, x, floor, z, IRON_BLOCK);
+      if (Math.abs(wz - 16) <= 1 && ax <= 2) set(blocks, x, floor, z, IRON_BLOCK);
+      if (wx === -22 && wz >= -2 && wz <= 2) {
+        for (let y = floor + 1; y <= floor + 4; y++) {
+          if (wz === -2 || wz === 2 || y === floor + 1 || y === floor + 4) set(blocks, x, y, z, OBSIDIAN);
+          else set(blocks, x, y, z, NETHER_PORTAL);
+        }
+      }
+      if (wx === 22 && wz >= -1 && wz <= 1 && az <= 1) {
+        set(blocks, x, floor + 1, z, END_PORTAL_FRAME);
+        if (wz === 0) set(blocks, x, floor + 1, z, END_PORTAL);
+      }
+      if ((wx % 8 === 0 && wz % 8 === 0) && ax < 22 && az < 22) set(blocks, x, 44, z, GLOWSTONE);
+    }
+  }
+}
+
+export function generateChunk(
+  seed: number,
+  cx: number,
+  cz: number,
+  dim: Dim,
+  noises: Noises,
+  arena?: "duel" | null,
+): ChunkData {
   const blocks = new Uint16Array(CHUNK_W * CHUNK_H * CHUNK_W);
   const biomes = new Uint8Array(CHUNK_W * CHUNK_W);
   const rng = mulberry32(mixSeed(seed, cx * 341 + cz * 913));
 
+  if (arena === "duel") {
+    genDuel(blocks, biomes, cx, cz);
+    return { blocks, biomes };
+  }
   if (dim === "nether") {
     genNether(blocks, biomes, seed, cx, cz, noises, rng);
     return { blocks, biomes };
@@ -505,6 +562,16 @@ function genNether(
       }
     }
   }
+  if ((hash2(cx, cz, seed) > 0.86) && Math.abs(cx) + Math.abs(cz) > 1) {
+    const wy = 48;
+    for (let x = 0; x < CHUNK_W; x++) {
+      for (let z = 0; z < 3; z++) {
+        set(blocks, x, wy, z + 6, NETHER_BRICKS);
+        if (x % 4 === 0) set(blocks, x, wy + 1, z + 6, NETHER_BRICKS);
+      }
+    }
+    for (let i = 0; i < 6; i++) set(blocks, 8, wy + 1 + i, 7, NETHER_BRICKS);
+  }
   for (let z = 2; z < CHUNK_W - 2; z++) {
     for (let x = 2; x < CHUNK_W - 2; x++) {
       const bid = BIOME_INDEX[biomes[x + z * CHUNK_W]!] ?? "nether_wastes";
@@ -549,6 +616,27 @@ function genEnd(blocks: Uint16Array, biomes: Uint8Array, seed: number, cx: numbe
       }
     }
     set(blocks, 8, 48, 8, BEDROCK);
+    const pillars = [
+      [3, 3],
+      [3, 12],
+      [12, 3],
+      [12, 12],
+      [8, 2],
+      [8, 13],
+      [2, 8],
+      [13, 8],
+    ];
+    for (const [px, pz] of pillars) {
+      const h = 8 + ((px + pz) % 5);
+      for (let y = 48; y < 48 + h; y++) set(blocks, px, y, pz, OBSIDIAN);
+      set(blocks, px, 48 + h, pz, BEDROCK);
+    }
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) {
+        if (i === 1 && j === 1) set(blocks, 7 + i, 48, 7 + j, END_PORTAL);
+        else set(blocks, 7 + i, 48, 7 + j, END_PORTAL_FRAME);
+      }
+    }
     return;
   }
   if (dist < 1.6) return;

@@ -31,6 +31,7 @@ export class World {
   private buildQueue: Chunk[] = [];
   private lastPlayer = { x: 0, z: 0 };
   shadows = false;
+  arena: "duel" | null = null;
 
   constructor(scene: THREE.Scene, atlas: Atlas, seed: number) {
     this.scene = scene;
@@ -117,7 +118,7 @@ export class World {
     const edited = this.edits.get(k);
     const data = edited
       ? { blocks: edited, biomes: new Uint8Array(CHUNK_W * CHUNK_W) }
-      : generateChunk(this.seed, cx, cz, dim, this.noises);
+      : generateChunk(this.seed, cx, cz, dim, this.noises, this.arena);
     ch = { cx, cz, dim, data, dirty: true, building: false };
     this.chunks.set(k, ch);
     this.buildQueue.push(ch);

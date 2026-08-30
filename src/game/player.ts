@@ -57,6 +57,14 @@ export class Player {
   autoJump = false;
   difficulty: Difficulty = "normal";
   lastHurtAmt = 0;
+  attackCd = 0;
+  attackCdMax = 0.625;
+  absorption = 0;
+  regenT = 0;
+  kills = 0;
+  shieldDisable = 0;
+  squash = 1;
+
 
   get selected(): Slot {
     return this.inventory[this.hotbar] ?? null;
@@ -93,6 +101,15 @@ export class Player {
     if (input.hotbar >= 0) this.hotbar = input.hotbar;
     this.sneaking = input.sneak && !this.flying;
     this.sprinting = input.sprint && input.moveY > 0.4 && !this.sneaking && this.hunger > 6;
+    this.attackCd = Math.max(0, this.attackCd - dt);
+    this.shieldDisable = Math.max(0, this.shieldDisable - dt);
+    this.squash += (1 - this.squash) * (1 - Math.exp(-12 * dt));
+    if (this.regenT > 0) {
+      this.regenT -= dt;
+      this.health = Math.min(20, this.health + 2.4 * dt);
+    }
+    if (this.absorption > 0 && this.hurt <= 0) this.absorption = Math.max(0, this.absorption - 0.15 * dt);
+
 
     if (this.mode === "creative") {
       if (input.justJump) {
@@ -134,12 +151,12 @@ export class Player {
       this.vz = wishZ * 2;
       this.vy = input.moveY > 0.1 || input.jump ? 3 : -2;
     } else {
-      const accel = this.onGround ? 18 : 6;
+      const accel = this.onGround ? 22 : 8.5;
       this.vx += (wishX * speed - this.vx) * accel * dt;
       this.vz += (wishZ * speed - this.vz) * accel * dt;
       this.vy -= GRAVITY * dt;
       if ((this.onGround || this.lastGround < COYOTE) && input.justJump) {
-        this.vy = JUMP;
+        this.vy = JUMP + (this.sprinting ? 0.35 : 0);
         this.onGround = false;
       } else if (this.autoJump && this.onGround && input.moveY > 0.3 && !this.sneaking) {
         const fx = Math.floor(this.x + f.x * 0.85);
@@ -166,7 +183,10 @@ export class Player {
     if (this.onGround && horiz > 0.4) this.bob += dt * horiz * 1.6;
     this.swing = Math.max(0, this.swing - dt * 4);
     this.hurt = Math.max(0, this.hurt - dt);
-    this.blocking = input.use && this.offhand?.id === 10031;
+    this.blocking =
+      this.shieldDisable <= 0 &&
+      (input.use || input.block) &&
+      (this.offhand?.id === 10031 || this.selected?.id === 10031);
 
     if (this.mode === "survival" || this.mode === "hardcore") {
       this.tickSurvival(dt, world);
@@ -179,8 +199,12 @@ export class Player {
     const w = WIDTH, h = this.sneaking ? HEIGHT - 0.2 : HEIGHT;
     this.x += dx;
     if (world.collides(this.x - w / 2, this.y, this.z - w / 2, w, h, w)) {
-      this.x -= dx;
-      if (dx) this.vx = 0;
+      if (dx && this.onGround && !world.collides(this.x - w / 2, this.y + 0.55, this.z - w / 2, w, h, w)) {
+        this.y += 0.55;
+      } else {
+        this.x -= dx;
+        if (dx) this.vx = 0;
+      }
     }
     this.y += dy;
     if (world.collides(this.x - w / 2, this.y, this.z - w / 2, w, h, w)) {
@@ -196,8 +220,12 @@ export class Player {
     }
     this.z += dz;
     if (world.collides(this.x - w / 2, this.y, this.z - w / 2, w, h, w)) {
-      this.z -= dz;
-      if (dz) this.vz = 0;
+      if (dz && this.onGround && !world.collides(this.x - w / 2, this.y + 0.55, this.z - w / 2, w, h, w)) {
+        this.y += 0.55;
+      } else {
+        this.z -= dz;
+        if (dz) this.vz = 0;
+      }
     }
   }
 
@@ -231,18 +259,34 @@ export class Player {
 
   hurtBy(amount: number, _src: string) {
     if (this.invincible || this.mode === "creative") return;
-    if (this.hurt > 0 && amount < 4) return;
+    if (this.hurt > (this.mode === "survival" ? 0.32 : 0.42) && amount < 5) return;
     let a = amount;
     if (this.difficulty === "peaceful" && _src !== "void" && _src !== "drown" && _src !== "starve") a = 0;
     if (this.difficulty === "easy") a *= 0.6;
     if (this.difficulty === "hard") a *= 1.4;
-    if (this.blocking) a *= 0.35;
+    if (this.blocking) a *= 0.33;
     const ar = this.armorPoints();
     a *= 1 - Math.min(0.8, ar / 25);
+    if (this.absorption > 0) {
+      const take = Math.min(this.absorption, a);
+      this.absorption -= take;
+      a -= take;
+    }
     this.health -= a;
-    this.hurt = 0.45;
+    this.hurt = 0.5;
     this.lastHurtAmt = a;
     if (this.health < 0) this.health = 0;
+  }
+
+  applyKnockback(dirX: number, dirZ: number, strength: number) {
+    if (this.invincible || this.mode === "creative") return;
+    let s = strength;
+    if (this.blocking) s *= 0.22;
+    const len = Math.hypot(dirX, dirZ) || 1;
+    this.vx += (dirX / len) * s;
+    this.vz += (dirZ / len) * s;
+    this.vy += Math.min(6.2, 0.42 * s);
+    this.onGround = false;
   }
 
   eat() {
@@ -250,8 +294,14 @@ export class Player {
     if (!s) return false;
     const food = getDef(s.id)?.food;
     if (!food) return false;
-    if (this.hunger >= 20) return false;
+    const gapple = s.id === 10055;
+    if (!gapple && this.hunger >= 20) return false;
     this.hunger = Math.min(20, this.hunger + food);
+    if (gapple) {
+      this.absorption = Math.max(this.absorption, 4);
+      this.regenT = 5;
+      this.health = Math.min(20, this.health + 2);
+    }
     s.count--;
     if (s.count <= 0) this.inventory[this.hotbar] = null;
     return true;

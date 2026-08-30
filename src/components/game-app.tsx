@@ -54,8 +54,7 @@ function MenuShell() {
     <div className="relative flex h-full flex-col">
       <Panorama />
       <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-none">
-        {phase === "title" && <TitleScreen />}
-        {phase === "menu" && <MainMenu />}
+        {(phase === "title" || phase === "menu") && <TitleScreen />}
         {phase === "worlds" && <WorldSelect />}
         {phase === "create" && <CreateWorld />}
         {phase === "lobby" && <Lobby />}
@@ -66,7 +65,7 @@ function MenuShell() {
   );
 }
 
-const PANO_BIOMES = ["plains", "forest", "desert", "snow", "ocean", "mountains", "cherry", "swamp"] as const;
+const PANO_BIOMES = ["plains", "forest", "desert", "snow", "ocean", "mountains", "cherry", "swamp", "nether", "end"] as const;
 
 function Panorama() {
   const strip = [...PANO_BIOMES, ...PANO_BIOMES];
@@ -109,26 +108,59 @@ const SPLASH = [
 function TitleScreen() {
   const setPhase = useApp((s) => s.setPhase);
   const profile = useApp((s) => s.profile);
+  const setProfile = useApp((s) => s.setProfile);
+  const upsert = useApp((s) => s.upsertWorld);
+  const [name, setName] = useState(profile.username);
   const splash = SPLASH[Math.floor(Date.now() / 8000) % SPLASH.length]!;
+  const bootDual = () => {
+    const meta = newWorldMeta("Dual", 20260829, "survival", true);
+    meta.id = "w-dual-official";
+    meta.arena = "duel";
+    meta.code = "dual";
+    meta.name = "Dual";
+    upsert(meta);
+    useApp.getState().setNet({ multiplayer: true, isHost: true });
+    void bootWorld(meta, true);
+  };
   return (
-    <div className="flex h-full flex-col items-center justify-center px-5 py-8 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(2rem,env(safe-area-inset-bottom))]">
-      <p className="mb-2 text-xs tracking-[0.3em] text-fg/80 uppercase">Brace the wild. Face the night.</p>
-      <h1 className="pixel-title text-center text-5xl leading-none text-[#f4efe4] sm:text-7xl">
-        MINE
-        <span className="block text-[#8fbf4a]">OR CRAFT</span>
-      </h1>
-      <p className="mt-3 rotate-[-6deg] text-sm font-medium text-xp">{splash}</p>
-      <p className="mt-4 max-w-md text-center text-sm text-fg/80">
-        A voxel sandbox. Punch trees. Craft tools. Survive creepers. Hunt the Void Wyrm.
-      </p>
-      <div className="mt-8 w-full max-w-sm space-y-3">
-        <McBtn primary onClick={() => setPhase("menu")}>
-          Play
-        </McBtn>
+    <div className="relative flex h-full flex-col items-center px-4 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
+      <div className="relative mt-[7vh] mb-1 select-none">
+        <h1 className="pixel-title text-center text-[3.2rem] leading-[0.82] text-[#fcfc54] drop-shadow-[4px_4px_0_#3f3f00] sm:text-7xl">
+          MINE
+          <span className="block text-[#3f3]">OR CRAFT</span>
+        </h1>
+        <p className="mc-splash absolute -right-1 -bottom-2 max-w-[12rem] text-right text-sm font-bold sm:right-[-5rem] sm:bottom-1 sm:text-lg">
+          {splash}
+        </p>
       </div>
-      <p className="mt-6 text-xs text-muted">
-        Signed in as <span className="text-fg">{profile.username}</span> · {profile.xp} XP
-      </p>
+      <div className="mc-menu-stack mt-auto mb-auto w-full max-w-[420px] space-y-2 p-3 sm:mt-12">
+        <McBtn primary onClick={() => setPhase("worlds")}>
+          Singleplayer
+        </McBtn>
+        <McBtn onClick={() => setPhase("lobby")}>Multiplayer</McBtn>
+        <McBtn className="mc-btn-dual" onClick={bootDual}>
+          Dual — PvP Arena
+        </McBtn>
+        <div className="grid grid-cols-2 gap-2">
+          <McBtn onClick={() => setPhase("skins")}>Skin Studio</McBtn>
+          <McBtn onClick={() => useApp.getState().setOverlay("settings")}>Options…</McBtn>
+        </div>
+        <label className="mt-2 block text-[11px] tracking-wide text-muted">Username</label>
+        <input
+          value={name}
+          onChange={(e) => setName(e.target.value.slice(0, 16))}
+          onBlur={() => setProfile({ username: name || "Player" })}
+          className="min-h-11 w-full border-2 border-black bg-[#00000088] px-3 text-fg outline-none"
+        />
+      </div>
+      <div className="mt-2 flex w-full max-w-3xl items-end justify-between px-1 text-[11px] text-muted">
+        <span>Mine or Craft 1.21.8</span>
+        <span className="text-right">
+          {profile.xp} XP
+          <br />
+          Copyright Mojang AB? No. Independent.
+        </span>
+      </div>
     </div>
   );
 }
@@ -170,7 +202,7 @@ function WorldSelect() {
   useEffect(() => refresh(), [refresh]);
   return (
     <div className="mx-auto flex h-full w-full max-w-lg flex-col px-5 py-6">
-      <button type="button" onClick={() => setPhase("menu")} className="mb-3 flex items-center gap-1 text-sm text-muted">
+      <button type="button" onClick={() => setPhase("title")} className="mb-3 flex items-center gap-1 text-sm text-muted">
         <ChevronLeft className="size-4" /> Back
       </button>
       <h2 className="pixel-title mb-4 text-3xl">Worlds</h2>
@@ -288,7 +320,7 @@ function Lobby() {
   const published = worlds.filter((w) => w.published);
   return (
     <div className="mx-auto flex h-full w-full max-w-lg flex-col px-5 py-6">
-      <button type="button" onClick={() => setPhase("menu")} className="mb-3 flex items-center gap-1 text-sm text-muted">
+      <button type="button" onClick={() => setPhase("title")} className="mb-3 flex items-center gap-1 text-sm text-muted">
         <ChevronLeft className="size-4" /> Back
       </button>
       <h2 className="pixel-title mb-1 text-3xl">Lobby</h2>
@@ -305,6 +337,18 @@ function Lobby() {
           type="button"
           className="mc-btn mc-btn-primary min-h-11 px-4"
           onClick={() => {
+            const code = (joinCode || "").toLowerCase();
+            if (code === "dual") {
+              const meta = newWorldMeta("Dual", 20260829, "survival", true);
+              meta.id = "w-dual-official";
+              meta.arena = "duel";
+              meta.code = "dual";
+              meta.name = "Dual";
+              useApp.getState().setNet({ multiplayer: true, isHost: true });
+              upsert(meta);
+              void bootWorld(meta, true);
+              return;
+            }
             const meta = newWorldMeta("Joined World", Date.now() % 1e9, "survival", false);
             meta.code = joinCode || meta.code;
             useApp.getState().setNet({ multiplayer: true, isHost: false });
@@ -343,6 +387,27 @@ function Lobby() {
         onChange={(e) => setPrice(Math.max(0, Number(e.target.value) || 0))}
         className="mb-4 min-h-11 border-2 border-black bg-elevated px-3"
       />
+      <h3 className="mb-2 text-sm font-medium">Featured — Dual</h3>
+      <button
+        type="button"
+        className="mc-panel mc-btn-dual mb-4 flex w-full items-center justify-between px-3 py-3 text-left"
+        onClick={() => {
+          const meta = newWorldMeta("Dual", 20260829, "survival", true);
+          meta.id = "w-dual-official";
+          meta.arena = "duel";
+          meta.code = "dual";
+          meta.name = "Dual";
+          useApp.getState().setNet({ multiplayer: true, isHost: true });
+          upsert(meta);
+          void bootWorld(meta, true);
+        }}
+      >
+        <span>
+          <span className="block text-sm">Dual — PvP by Mods</span>
+          <span className="text-xs text-fg/80">Sword · axe · shield · golden apple · pearls</span>
+        </span>
+        <Users className="size-4" />
+      </button>
       <h3 className="mb-2 text-sm font-medium">Public worlds</h3>
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
         {published.length === 0 && <p className="text-sm text-muted">Nothing listed yet. Publish one of yours.</p>}
@@ -390,7 +455,7 @@ function SkinStudio() {
   const [paste, setPaste] = useState("");
   return (
     <div className="mx-auto flex h-full w-full max-w-lg flex-col px-5 py-6">
-      <button type="button" onClick={() => setPhase("menu")} className="mb-3 flex items-center gap-1 text-sm text-muted">
+      <button type="button" onClick={() => setPhase("title")} className="mb-3 flex items-center gap-1 text-sm text-muted">
         <ChevronLeft className="size-4" /> Back
       </button>
       <h2 className="pixel-title mb-4 text-3xl">Skin Studio</h2>
@@ -516,7 +581,9 @@ function PlayView() {
       }
       useApp.getState().setLoading("Entering the world…", 1);
       useApp.getState().setPhase("playing");
-      useApp.getState().setOverlay("locked");
+      useApp.getState().setOverlay("none");
+      eng.setOverlay("none");
+      eng.audio.unlock();
     };
     void boot();
     return () => {
@@ -530,22 +597,15 @@ function PlayView() {
     engineRef?.applySettings(settings);
   }, [settings]);
 
-  const clickToPlay = () => {
-    const el = canvasRef.current;
-    if (!el) return;
-    engineRef?.audio.unlock();
-    el.requestPointerLock?.({ unadjustedMovement: true } as PointerLockOptions).catch(() => {
-      el.requestPointerLock?.();
-    });
-    engineRef?.setOverlay("none");
-    setOverlay("none");
-  };
-
   const pct = Math.round(Math.min(100, Math.max(0, loadingPct * 100)));
 
   return (
     <>
-      <canvas ref={canvasRef} className="touch-none absolute inset-0 h-full w-full" />
+      <canvas
+        ref={canvasRef}
+        className="touch-none absolute inset-0 h-full w-full"
+        onPointerDown={() => getEngine()?.audio.unlock()}
+      />
       {phase === "loading" && (
         <div className="mc-dirt-load absolute inset-0 z-40 flex flex-col items-center justify-center px-6">
           <h2 className="pixel-title text-3xl sm:text-4xl">MINE OR CRAFT</h2>
@@ -558,17 +618,6 @@ function PlayView() {
             Generating chunks. This can take a few seconds on phones — keep this tab open.
           </p>
         </div>
-      )}
-      {phase === "playing" && overlay === "locked" && (
-        <button type="button" onClick={clickToPlay} className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-black/55 px-5">
-          <p className="pixel-title text-3xl">Tap to play</p>
-          <p className="mt-2 hidden max-w-sm text-center text-sm text-muted sm:block">
-            Desktop: WASD · mouse look · left mine · right place · E inventory · Esc pause
-          </p>
-          <p className="mt-2 max-w-sm text-center text-sm text-muted sm:hidden">
-            Left stick to walk. Drag the empty right side to look. Mine, Use, and Jump on the right. Bag and pause at the top.
-          </p>
-        </button>
       )}
       {phase === "playing" && overlay === "none" && hud && <Hud hud={hud} />}
       {phase === "playing" && overlay === "none" && <MobileControls />}
@@ -589,6 +638,8 @@ function Hud({ hud }: { hud: NonNullable<ReturnType<typeof useApp.getState>["hud
   const food = Math.ceil(hud.hunger / 2);
   const scale = settings.guiScale;
   const airBubbles = Math.ceil(Math.max(0, hud.air) / 1);
+  const absHearts = Math.ceil((hud.absorption ?? 0) / 2);
+  const cd = Math.max(0, Math.min(1, hud.attackCd ?? 1));
   return (
     <div className="pointer-events-none absolute inset-0 z-30" style={{ fontSize: `${scale * 16}px` }}>
       {settings.vignette && (
@@ -616,6 +667,20 @@ function Hud({ hud }: { hud: NonNullable<ReturnType<typeof useApp.getState>["hud
       {settings.crosshair === "circle" && (
         <div className="absolute top-1/2 left-1/2 size-3 -translate-x-1/2 -translate-y-1/2 rounded-full border border-white/80" />
       )}
+      {(hud.hitFlash ?? 0) > 0 && (
+        <div className="pointer-events-none absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
+          <div className="h-5 w-5 rotate-45 border-t-2 border-r-2 border-white/90" />
+        </div>
+      )}
+      {hud.blocking && (
+        <p className="absolute top-[46%] left-1/2 -translate-x-1/2 text-[10px] tracking-widest text-white/80">BLOCKING</p>
+      )}
+      {hud.arena === "duel" && (
+        <div className="pointer-events-none absolute top-3 left-1/2 w-[min(360px,86%)] -translate-x-1/2 text-center">
+          <p className="pixel-title text-lg tracking-wide">DUAL</p>
+          <p className="text-[11px] text-fg/80">PvP by Mods · sword · shield · golden apple · {hud.kills ?? 0} kills</p>
+        </div>
+      )}
       {hud.boss && (
         <div className="absolute top-4 left-1/2 w-[min(420px,90%)] -translate-x-1/2">
           <p className="mb-1 text-center text-xs tracking-wide">{hud.boss.name}</p>
@@ -636,8 +701,8 @@ function Hud({ hud }: { hud: NonNullable<ReturnType<typeof useApp.getState>["hud
                 <Heart
                   key={i}
                   className="size-4"
-                  fill={i < hearts ? "#c45c4a" : "transparent"}
-                  color={i < hearts ? "#c45c4a" : "#3a2020"}
+                  fill={i < hearts ? "#c45c4a" : i < hearts + absHearts ? "#f0c832" : "transparent"}
+                  color={i < hearts ? "#c45c4a" : i < hearts + absHearts ? "#f0c832" : "#3a2020"}
                 />
               ))}
             </div>
@@ -660,6 +725,9 @@ function Hud({ hud }: { hud: NonNullable<ReturnType<typeof useApp.getState>["hud
         )}
         <div className="h-1.5 w-full border border-black bg-slot-dark">
           <div className="h-full bg-xp" style={{ width: `${Math.min(100, (hud.xp / (7 + hud.xpLevel * 2)) * 100)}%` }} />
+        </div>
+        <div className="h-1 w-24 border border-black bg-slot-dark">
+          <div className="h-full bg-white/80" style={{ width: `${cd * 100}%` }} />
         </div>
         <p className="hud-num -mt-1 text-[10px] text-xp">{hud.xpLevel}</p>
         <div className="mc-hotbar pointer-events-auto flex gap-0.5">
@@ -778,7 +846,7 @@ function MobileControls() {
     window.addEventListener("pointercancel", up);
   };
 
-  const hold = (key: "touchJump" | "touchAttack" | "touchUse" | "touchSneak") => ({
+  const hold = (key: "touchJump" | "touchAttack" | "touchUse" | "touchSneak" | "touchSprint" | "touchBlock") => ({
     onPointerDown: (e: React.PointerEvent) => {
       e.stopPropagation();
       const i = eng()?.input;
@@ -825,15 +893,35 @@ function MobileControls() {
         </button>
         <div className="flex gap-2">
           <button type="button" className="mc-btn size-16 text-base" {...hold("touchAttack")}>
-            Mine
+            Hit
           </button>
           <button type="button" className="mc-btn size-16 text-base" {...hold("touchUse")}>
             Use
           </button>
         </div>
-        <button type="button" className="mc-btn h-12 min-w-16 px-3 text-sm" {...hold("touchSneak")}>
-          Sneak
-        </button>
+        <div className="flex gap-2">
+          <button type="button" className="mc-btn h-12 min-w-16 px-3 text-sm" {...hold("touchSprint")}>
+            Sprint
+          </button>
+          <button type="button" className="mc-btn h-12 min-w-16 px-3 text-sm" {...hold("touchSneak")}>
+            Sneak
+          </button>
+        </div>
+        <div className="flex gap-2">
+          <button type="button" className="mc-btn h-12 min-w-16 px-3 text-sm" {...hold("touchBlock")}>
+            Block
+          </button>
+          <button
+            type="button"
+            className="mc-btn h-12 min-w-16 px-3 text-sm"
+            onPointerDown={(e) => {
+              e.stopPropagation();
+              eng()?.player.eat();
+            }}
+          >
+            Eat
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -851,7 +939,7 @@ function PauseMenu() {
             primary
             onClick={() => {
               getEngine()?.setOverlay("none");
-              setOverlay("locked");
+              setOverlay("none");
             }}
           >
             Resume
@@ -864,7 +952,7 @@ function PauseMenu() {
               getEngine()?.dispose();
               engineRef = null;
               setOverlay("none");
-              setPhase("menu");
+              setPhase("title");
             }}
           >
             Save and Quit
@@ -940,7 +1028,7 @@ function InventoryOverlay({ kind }: { kind: Overlay }) {
             className="mc-btn min-h-11 px-3"
             onClick={() => {
               getEngine()?.setOverlay("none");
-              setOverlay("locked");
+              setOverlay("none");
             }}
           >
             Close
@@ -1083,7 +1171,7 @@ function ChatOverlay() {
           engineRef?.chat.push(val);
           engineRef?.chat.push(r);
           engineRef?.setOverlay("none");
-          setOverlay("locked");
+          setOverlay("none");
         }}
       >
         <input
@@ -1093,7 +1181,7 @@ function ChatOverlay() {
           className="min-h-11 w-full border-2 border-black bg-elevated px-3"
         />
       </form>
-      <p className="mt-1 text-[11px] text-muted">/give 1 64 · /gamemode creative · /time night · /fly · /home</p>
+      <p className="mt-1 text-[11px] text-muted">/give 1 64 · /gamemode creative · /nether · /end · /fly · /home</p>
     </div>
   );
 }
@@ -1113,15 +1201,17 @@ function DeadScreen() {
           <McBtn
             primary
             onClick={() => {
-              if (engineRef) {
-                engineRef.player.health = 20;
-                engineRef.player.hunger = 20;
-                engineRef.player.x = engineRef.meta.spawn.x;
-                engineRef.player.y = engineRef.meta.spawn.y;
-                engineRef.player.z = engineRef.meta.spawn.z;
-                engineRef.setOverlay("none");
+              const eng = getEngine();
+              if (eng) {
+                eng.player.health = 20;
+                eng.player.hunger = 20;
+                eng.player.x = eng.meta.spawn.x;
+                eng.player.y = eng.meta.spawn.y;
+                eng.player.z = eng.meta.spawn.z;
+                if (eng.meta.arena === "duel") eng.giveDuelKit(false);
+                eng.setOverlay("none");
               }
-              setOverlay("locked");
+              setOverlay("none");
             }}
           >
             Respawn
@@ -1133,7 +1223,7 @@ function DeadScreen() {
             engineRef?.dispose();
             engineRef = null;
             setOverlay("none");
-            setPhase("menu");
+            setPhase("title");
           }}
         >
           Title screen
@@ -1152,7 +1242,7 @@ function WinScreen() {
         <p className="mt-4 text-sm text-muted">
           The Void Wyrm is gone. The Pale One cannot follow a player who has finished the story. The world remains yours.
         </p>
-        <McBtn primary className="mt-6" onClick={() => setOverlay("locked")}>
+        <McBtn primary className="mt-6" onClick={() => setOverlay("none")}>
           Continue
         </McBtn>
       </div>

@@ -1,6 +1,6 @@
 # Mine or Craft
 
-A browser voxel sandbox. Mine, craft, survive, and explore generated worlds with friends.
+A browser voxel sandbox. Mine, craft, survive, duel, and explore the Nether and the End.
 
 **Play on Cloudflare:** [mine-or-craft.sgd-list.workers.dev](https://mine-or-craft.sgd-list.workers.dev)
 
@@ -8,27 +8,42 @@ Safari’s address bar often *shortens* that host so it looks like `aft.sgd-list
 
 ## Play
 
-Open the app, set a username, and create a survival world. You start with an empty inventory — punch a tree, craft planks, then a crafting table and tools.
+Open the title screen (Minecraft-style panorama), set a username, then:
 
-A loading bar appears while chunks generate. On a phone that can take a few seconds; the tab stays responsive.
+- **Singleplayer** — survival, creative, or hardcore. Empty inventory. Punch a tree.
+- **Multiplayer** — host or join with a code.
+- **Dual — PvP Arena** — official Mods server. Diamond kit, shield, golden apples, pearls, a skilled duelist bot. Join code `dual`.
+
+## Dual kit
+
+Sword, axe, bow, shield (offhand), 8 golden apples, 16 ender pearls, water + lava buckets, cobble, fishing rod, steak, full diamond armor. 1.9-style cooldown, crits, sprint knockback, axe shield-disable.
+
+## Dimensions
+
+Stand in a nether portal (obsidian frame + flint and steel) or type `/nether` / `/end` / `/overworld` with cheats on. Dual has portals on the west and east walls.
 
 ## Controls
 
 | Action | Desktop | Mobile |
 | --- | --- | --- |
 | Move | WASD | Left stick |
-| Look | Mouse (click / tap to lock) | Drag the **middle-right** (look pad stays clear of bag / pause / hotbar) |
-| Mine / attack | Left click | Mine button |
-| Place / use | Right click | Use button |
+| Look | Mouse (click canvas) | Drag the look pad |
+| Mine / attack | Left click | Hit |
+| Place / use / pearl | Right click | Use |
 | Jump | Space | Jump |
 | Sneak | Shift | Sneak |
-| Sprint | Ctrl or R | — |
-| Inventory | E or bag button | Bag button (top right) |
-| Pause | Esc or pause button | Pause button (top right) |
+| Sprint | Ctrl or R | Sprint |
+| Block | Right click / C | Block |
+| Eat | Right click food | Eat |
+| Inventory | E or bag | Bag (top right) |
+| Pause | Esc | Pause (top right) |
 | Camera | F5 | Settings → Gameplay |
-| Debug overlay | F3 | Settings → HUD |
-| Hotbar | 1–9 | Tap slots |
-| Commands | T or / | Pause → chat |
+
+No tap-to-play overlay — the world starts as soon as chunks finish.
+
+## Mobs
+
+Overworld animals and hostiles, Nether piglins / blazes / ghasts, Endermen and the Void Wyrm, plus villagers, wardens, ravagers, axolotls, and more. Third-person player and mobs use articulated models with walk cycles.
 
 ## Fix a white screen / “too many redirects” on Cloudflare
 
@@ -38,34 +53,6 @@ In the Cloudflare Workers project connected to this repo:
 
 1. **Build command:** `npm run build`
 2. **Deploy command:** `npx wrangler deploy`
-3. **Version command:** leave **blank**
-4. **Root directory:** `/`
-5. Click **Retry deployment** (or push to `main` if auto-deploy is on)
+3. **Do not** enable `run_worker_first` or `html_handling: auto-trailing-slash`
 
-Do **not** set a Worker entrypoint / `main` module. `wrangler.jsonc` is assets-only:
-
-```jsonc
-{
-  "name": "mine-or-craft",
-  "compatibility_date": "2026-08-29",
-  "workers_dev": true,
-  "assets": {
-    "directory": "./dist",
-    "html_handling": "none",
-    "not_found_handling": "single-page-application"
-  }
-}
-```
-
-If you create a **Pages** project instead: framework Vite, build `npm run build`, output directory `dist`.
-
-## Features
-
-- Chunked voxel world with 20+ overworld biomes, the Nether, and the End
-- 3,200 distinct blocks plus tools, armor, shield, and food
-- Survival, creative, and hardcore
-- Crafting, furnace, nether portals, Void Wyrm, the Pale One
-- Skin studio, P2P lobbies, deep settings
-- Rotating biome panorama on the title screen
-
-Worlds save in the browser (IndexedDB). Cheats (if enabled): `/give`, `/gamemode`, `/time`, `/fly`, `/god`, `/heal`, `/home`, `/seed`, `/xp`, `/stronghold`, `/weather`, `/difficulty`.
+`wrangler.jsonc` is already set to `html_handling: none` + `not_found_handling: single-page-application`.

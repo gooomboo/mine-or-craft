@@ -46,6 +46,12 @@ export interface HudSnap {
   mining: number;
   cameraMode: CameraMode;
   crosshair: CrosshairStyle;
+  attackCd: number;
+  absorption: number;
+  arena?: string;
+  kills: number;
+  hitFlash?: number;
+  blocking?: boolean;
 }
 
 interface AppState {

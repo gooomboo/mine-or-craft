@@ -22,6 +22,7 @@ export interface Actions {
   justChat: boolean;
   justCamera: boolean;
   justDebug: boolean;
+  block: boolean;
 }
 
 const empty = (): Actions => ({
@@ -48,6 +49,7 @@ const empty = (): Actions => ({
   justChat: false,
   justCamera: false,
   justDebug: false,
+  block: false,
 });
 
 export class Input {
@@ -72,6 +74,8 @@ export class Input {
   touchSneak = false;
   touchAttack = false;
   touchUse = false;
+  touchSprint = false;
+  touchBlock = false;
   enabled = true;
   private el: HTMLElement | null = null;
 
@@ -134,6 +138,11 @@ export class Input {
     if (!this.enabled) return;
     if (e.button === 0) this.keys.add("Mouse0");
     if (e.button === 2) this.keys.add("Mouse2");
+    if (!this.pointerLocked && this.el && !("ontouchstart" in window)) {
+      this.el.requestPointerLock?.({ unadjustedMovement: true } as PointerLockOptions).catch(() => {
+        this.el?.requestPointerLock?.();
+      });
+    }
   };
 
   private onMouseUp = (e: MouseEvent) => {
@@ -169,7 +178,7 @@ export class Input {
     a.jump = this.has("Space") || this.touchJump;
 
     const sneakHeld = this.has("ShiftLeft") || this.has("ShiftRight") || this.touchSneak;
-    const sprintHeld = this.has("ControlLeft") || this.has("ControlRight") || this.has("KeyR");
+    const sprintHeld = this.has("ControlLeft") || this.has("ControlRight") || this.has("KeyR") || this.touchSprint;
     if (this.sneakToggle) {
       if (sneakHeld && !this.prev.sneak) this.sneakLatch = !this.sneakLatch;
       a.sneak = this.sneakLatch;
@@ -185,6 +194,7 @@ export class Input {
 
     a.attack = this.has("Mouse0") || this.touchAttack;
     a.use = this.has("Mouse2") || this.touchUse;
+    a.block = this.touchBlock || this.has("KeyC");
     a.inventory = this.has("KeyE");
     a.pause = this.has("Escape");
     a.drop = this.has("KeyQ");
