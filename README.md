@@ -76,6 +76,7 @@ Online join codes use `/api/rtc` (in-memory signaling, no database). Host a worl
 - Setting `DATABASE_URL` or running `npm run db:migrate` on Pages.
 - Pointing wrangler at the Vercel nitro output.
 - Filling **Deploy command** with `npx wrangler pages deploy` on this Worker form (use `npx wrangler deploy`).
+- Shipping a `_redirects` file with `/* /index.html 200`. Workers already has SPA fallback; that rule errors with code 100324.
 - Buying a Java/Bedrock Minecraft host. That protocol is not this game.
 - GitHub Pages **alone** — the static game works, but `/api/rtc` 404s so Online cannot connect. Use this Cloudflare Worker so `/api/rtc` exists.
 - Building from an old commit that does not have `scripts/build-cf.mjs`.

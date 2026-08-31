@@ -6,9 +6,13 @@
  * - Does NOT need DATABASE_URL
  * Output: dist/client/index.html + assets.
  * wrangler.jsonc then ships dist/client as Worker static assets.
+ *
+ * Do NOT emit a `_redirects` catch-all. Workers static assets already use
+ * `not_found_handling: "single-page-application"`. A `/* /index.html 200`
+ * rule makes wrangler fail with infinite-loop code 100324.
  */
 import { spawnSync } from "node:child_process";
-import { existsSync, renameSync, writeFileSync, readFileSync, mkdirSync } from "node:fs";
+import { existsSync, renameSync, writeFileSync, readFileSync, mkdirSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -39,7 +43,7 @@ mustContain("src/game/save.ts", "export function enterGuest");
 mustContain("src/game/save.ts", "export function signInAccount");
 mustContain("src/game/save.ts", "export function signUpAccount");
 mustContain("src/game/blocks.ts", "export function labBlockList");
-console.log("[build:cf] stamp cf-2026-08-30-v3");
+console.log("[build:cf] stamp cf-2026-08-30-v4");
 
 const esbuildInstall = join(root, "node_modules/esbuild/install.js");
 if (existsSync(esbuildInstall)) {
@@ -68,9 +72,13 @@ let html = readFileSync(to, "utf8");
 html = html.replaceAll("cf-index.html", "index.html");
 writeFileSync(to, html);
 
-const redirects = join(out, "_redirects");
-if (!existsSync(redirects)) {
-  writeFileSync(redirects, "/api/* /api/:splat 200\n/* /index.html 200\n");
+// Workers static assets: SPA fallback is wrangler.jsonc, not _redirects.
+for (const name of ["_redirects", "_routes.json"]) {
+  const p = join(out, name);
+  if (existsSync(p)) {
+    unlinkSync(p);
+    console.log(`[build:cf] removed ${name} (Workers SPA does not want this file)`);
+  }
 }
 
 console.log("[build:cf] static SPA ready at dist/client");
