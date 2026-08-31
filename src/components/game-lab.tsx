@@ -7,6 +7,7 @@ import {
   OPS,
   VANILLA_TEX,
   compileGame,
+  detectXpFarm,
   emptyPixels,
   emptyProject,
   loadGames,
@@ -63,13 +64,13 @@ type LabTab = "scripts" | "commands" | "display" | "data" | "blocks" | "sounds" 
 
 const HELP: Record<LabTab | "home", string> = {
   home: "Game Lab is a visual editor for your own worlds. Events fire when something happens. Stacks run in order. Packs stay on this device until you share them. Guests can play, not publish.",
-  scripts: "Yellow hats are events. Colored stacks are actions. Tap an event, then tap actions to build a script — same idea as Scratch, running on this world's tick.",
+  scripts: "Yellow hats are events. Colored stacks are actions. Tap an event, then tap actions. Play / Playtest runs start and join the moment you enter the world.",
   commands: "Chat commands, one per line. Same syntax as in-game: /give @s diamond_sword 1, /tp @s ~ ~10 ~, /execute as @a at @s run say hi. They run when the world starts.",
   display: "Styled on-screen text. Color, bold, and the words players see. Used by tellraw and title stacks.",
   data: "Entity data tags applied to mobs this pack spawns. NoAI freezes them. Invulnerable makes them unkillable. CustomName shows above their head.",
   blocks: "Paint 16×16 pixel art for a new block, or recolor a vanilla texture. Custom blocks only exist in YOUR pack — people who join this game see them too.",
   sounds: "Attach a short audio file. Play it from a sound stack. Files stay in the pack.",
-  bosses: "Drop a named boss into the world: Void Wyrm, Wither, or Wither Storm. Only this pack.",
+  bosses: "Drop a named boss into the world: Void Wyrm, Wither, Wither Storm, or a custom boss with its own name and health.",
   world: "Overworld spawn biome only. Nether and End stay locked so players cannot skip to the story bosses. Folder name groups saves on the Play screen.",
   share: "Private = this device. Friends = join code, their computer talks to yours. Marketplace = XP listing. Host = you are the server from this browser.",
 };
@@ -116,9 +117,13 @@ export function GameLab() {
   };
 
   const play = (g: GameProject, host = false) => {
+    const farm = detectXpFarm(g);
     const meta = newWorldMeta(g.name || "Mini Game", Date.now() % 1e9, "survival", !!g.allowCheats);
     meta.modJson = compileGame(g);
     meta.spawnBiome = g.spawnBiome;
+    meta.author = profile.username;
+    meta.labGame = true;
+    meta.xpFarm = farm.farm;
     upsert(meta);
     useApp.getState().setNet({ multiplayer: host || g.publishMode === "host" || g.publishMode === "friends", isHost: true });
     useApp.getState().setActive(meta);
@@ -191,9 +196,12 @@ export function GameLab() {
   const addScript = (when: HatKind) => persist({ ...cur, scripts: [...cur.scripts, { when, every: 8, do: [] }] });
   const addOp = (op: OpKind) => {
     const scripts = cur.scripts.slice();
-    const last = scripts[scripts.length - 1];
-    if (!last) return;
-    last.do = [...last.do, { op, id: 10023, count: 1, text: "Hello!", kind: "zombie", value: 1 }];
+    let last = scripts[scripts.length - 1];
+    if (!last) {
+      last = { when: "start", every: 8, do: [] };
+      scripts.push(last);
+    }
+    last.do = [...last.do, { op, id: 10023, count: 1, text: op === "sound" ? (cur.sounds[0]?.name ?? "craft") : "Hello!", kind: "zombie", value: 1 }];
     persist({ ...cur, scripts });
   };
   const patchOp = (si: number, oi: number, patch: Partial<StackBlock>) => {
@@ -309,6 +317,7 @@ export function GameLab() {
               <ScriptColumn
                 key={si}
                 script={s}
+                sounds={cur.sounds.map((x) => x.name)}
                 onEvery={(n) => persist({ ...cur, scripts: cur.scripts.map((x, i) => (i === si ? { ...x, every: n } : x)) })}
                 onPatch={(oi, p) => patchOp(si, oi, p)}
                 onDelete={() => persist({ ...cur, scripts: cur.scripts.filter((_, k) => k !== si) })}
@@ -430,14 +439,14 @@ export function GameLab() {
             </div>
           </div>
           <div className="mc-panel w-full space-y-2 p-3 text-sm lg:w-64">
-            <p className="text-muted">Recolor a vanilla block (hex).</p>
+            <p className="text-muted">Recolor any vanilla block (hex). {VANILLA_TEX.length} textures.</p>
             {VANILLA_TEX.map((k) => (
-              <label key={k} className="flex items-center justify-between gap-2">
-                <span className="capitalize">{k.replace("_", " ")}</span>
+              <label key={k.key} className="flex items-center justify-between gap-2">
+                <span className="truncate capitalize">{k.name}</span>
                 <input
-                  value={cur.textures?.[k] ?? ""}
+                  value={cur.textures?.[k.key] ?? ""}
                   placeholder="#88aa44"
-                  onChange={(e) => persist({ ...cur, textures: { ...cur.textures, [k]: e.target.value } })}
+                  onChange={(e) => persist({ ...cur, textures: { ...cur.textures, [k.key]: e.target.value } })}
                   className="min-h-10 w-28 border-2 border-black bg-elevated px-2 font-mono text-xs"
                 />
               </label>
@@ -483,8 +492,8 @@ export function GameLab() {
       )}
 
       {tab === "bosses" && (
-        <div className="mc-panel flex-1 space-y-3 p-4 text-sm">
-          <p className="text-muted">Add a story boss to this pack. Only runs in your game.</p>
+        <div className="mc-panel flex-1 space-y-3 overflow-y-auto p-4 text-sm">
+          <p className="text-muted">Add a story boss to this pack. Only runs in your game. Custom bosses are unique to this pack.</p>
           {["dragon", "wither", "wither_storm"].map((kind) => (
             <button
               key={kind}
@@ -500,6 +509,33 @@ export function GameLab() {
               Add {kind.replace("_", " ")}
             </button>
           ))}
+          <div className="space-y-2 border-t-2 border-black/40 pt-3">
+            <p className="text-muted">Custom boss — name, health, and color.</p>
+            <input
+              id="boss-name"
+              defaultValue="Rune Titan"
+              className="min-h-10 w-full border-2 border-black bg-elevated px-2"
+              placeholder="Boss name"
+            />
+            <input id="boss-hp" type="number" defaultValue={320} min={40} max={2000} className="min-h-10 w-full border-2 border-black bg-elevated px-2" />
+            <input id="boss-tint" type="color" defaultValue="#7a20a8" className="h-10 w-full border-2 border-black bg-elevated" />
+            <button
+              type="button"
+              className="mc-btn min-h-11 w-full"
+              onClick={() => {
+                const name = (document.getElementById("boss-name") as HTMLInputElement | null)?.value || "Rune Titan";
+                const hp = Math.max(40, Number((document.getElementById("boss-hp") as HTMLInputElement | null)?.value) || 320);
+                const hex = (document.getElementById("boss-tint") as HTMLInputElement | null)?.value || "#7a20a8";
+                const tint = parseInt(hex.replace("#", ""), 16);
+                persist({
+                  ...cur,
+                  bosses: [...cur.bosses, { kind: "custom_boss", name: name.slice(0, 24), hp, tint }],
+                });
+              }}
+            >
+              Add custom boss
+            </button>
+          </div>
           {cur.bosses.map((b, i) => (
             <div key={i} className="flex items-center justify-between">
               <span>
@@ -546,6 +582,11 @@ export function GameLab() {
       {tab === "share" && (
         <div className="mc-panel flex-1 space-y-3 overflow-y-auto p-4 text-sm">
           <p className="text-muted">Private stays on this device. Friends use a join code to your computer. Marketplace is an XP listing. Host makes this browser the server.</p>
+          {detectXpFarm(cur).farm && (
+            <p className="border-2 border-black bg-[#3a1010] px-3 py-2 text-sm text-[#f0c8c0]">
+              XP farm detected — {detectXpFarm(cur).reason} You can playtest, but Marketplace listing is blocked and nobody earns XP from this pack. Hosts never earn XP from their own Game Lab world.
+            </p>
+          )}
           {(["private", "friends", "market", "host"] as PublishMode[]).map((m) => (
             <button
               key={m}
@@ -578,6 +619,11 @@ export function GameLab() {
               setMsg("Guests cannot publish.");
               return;
             }
+            const farm = detectXpFarm(cur);
+            if (farm.farm && cur.publishMode === "market") {
+              setMsg(`Can't list an XP farm. ${farm.reason}`);
+              return;
+            }
             persist({ ...cur, published: cur.publishMode === "market", author: profile.username });
             setMsg(
               cur.publishMode === "market"
@@ -603,16 +649,18 @@ export function GameLab() {
 
 function ScriptColumn({
   script,
+  sounds,
   onEvery,
   onPatch,
   onDelete,
 }: {
   script: ScriptCard;
+  sounds: string[];
   onEvery: (n: number) => void;
   onPatch: (oi: number, p: Partial<StackBlock>) => void;
   onDelete: () => void;
 }) {
-  const hat = HATS.find((h) => h.id === script.when)!;
+  const hat = HATS.find((h) => h.id === script.when) ?? HATS[0]!;
   return (
     <div className="mb-4">
       <div className="flex items-center gap-2">
@@ -634,12 +682,28 @@ function ScriptColumn({
         </button>
       </div>
       {script.do.map((b, oi) => {
-        const def = OPS.find((o) => o.id === b.op)!;
+        const def = OPS.find((o) => o.id === b.op) ?? OPS[0]!;
         return (
           <div key={oi} className="px-3 py-2 text-sm text-black" style={{ background: def.color }}>
             <span className="mr-2">{def.label.split("[")[0]}</span>
             {def.fields?.includes("text") && (
-              <input value={b.text ?? ""} onChange={(e) => onPatch(oi, { text: e.target.value.slice(0, 48) })} className="mr-1 w-28 border border-black bg-white px-1" />
+              <>
+                {b.op === "sound" && sounds.length > 0 && (
+                  <select
+                    value={sounds.includes(b.text ?? "") ? b.text : ""}
+                    onChange={(e) => onPatch(oi, { text: e.target.value })}
+                    className="mr-1 border border-black bg-white px-1"
+                  >
+                    <option value="">built-in</option>
+                    {sounds.map((n) => (
+                      <option key={n} value={n}>
+                        {n}
+                      </option>
+                    ))}
+                  </select>
+                )}
+                <input value={b.text ?? ""} onChange={(e) => onPatch(oi, { text: e.target.value.slice(0, 48) })} className="mr-1 w-28 border border-black bg-white px-1" />
+              </>
             )}
             {def.fields?.includes("item") && (
               <select value={b.id} onChange={(e) => onPatch(oi, { id: Number(e.target.value) })} className="mr-1 border border-black bg-white px-1">

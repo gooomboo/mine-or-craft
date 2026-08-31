@@ -13,12 +13,58 @@ function geo(w: number, h: number, d: number) {
 }
 
 const mats = new Map<string, THREE.MeshLambertMaterial>();
+const pixelTex = new Map<string, THREE.CanvasTexture>();
+
+function hashN(n: number) {
+  n |= 0;
+  n = Math.imul(n ^ (n >>> 16), 2246822519);
+  n = Math.imul(n ^ (n >>> 13), 3266489917);
+  return ((n ^ (n >>> 16)) >>> 0) / 4294967296;
+}
+
+function pixelTexture(color: number, seed = 1): THREE.CanvasTexture {
+  const k = `${color}:${seed}`;
+  let t = pixelTex.get(k);
+  if (t) return t;
+  const c = document.createElement("canvas");
+  c.width = 16;
+  c.height = 16;
+  const g = c.getContext("2d")!;
+  const r0 = (color >> 16) & 255;
+  const g0 = (color >> 8) & 255;
+  const b0 = color & 255;
+  for (let y = 0; y < 16; y++) {
+    for (let x = 0; x < 16; x++) {
+      const n = hashN(x * 19 + y * 47 + seed * 13);
+      const n2 = hashN(x * 73 + y * 11 + seed * 29);
+      const edge = x === 0 || y === 0 || x === 15 || y === 15 ? 0.58 : x === 1 || y === 1 || x === 14 || y === 14 ? 0.78 : 1;
+      const hi = y < 3 ? 1.14 : y > 13 ? 0.82 : 1;
+      const speck = n2 > 0.82 ? 1.18 : n2 < 0.12 ? 0.78 : 1;
+      const f = (0.82 + n * 0.28) * edge * hi * speck;
+      const r = Math.max(0, Math.min(255, Math.round(r0 * f)));
+      const gc = Math.max(0, Math.min(255, Math.round(g0 * f)));
+      const b = Math.max(0, Math.min(255, Math.round(b0 * f)));
+      g.fillStyle = `rgb(${r},${gc},${b})`;
+      g.fillRect(x, y, 1, 1);
+    }
+  }
+  t = new THREE.CanvasTexture(c);
+  t.magFilter = THREE.NearestFilter;
+  t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.needsUpdate = true;
+  pixelTex.set(k, t);
+  return t;
+}
+
 function mat(color: number, emissive = 0) {
-  const k = `${color}:${emissive}`;
+  const k = `${color}:${emissive}:px`;
   let m = mats.get(k);
   if (!m) {
     m = new THREE.MeshLambertMaterial({
-      color,
+      map: pixelTexture(color, (color ^ 0x9e3779b9) >>> 0),
+      color: 0xffffff,
       emissive: emissive ? new THREE.Color(emissive) : new THREE.Color(0x000000),
       emissiveIntensity: emissive ? 0.55 : 0,
     });
@@ -177,17 +223,35 @@ export function addHeld(g: THREE.Group, kind: "sword" | "axe" | "bow" | "pearl" 
   return grip;
 }
 
-export function buildViewArm(skin: number): THREE.Group {
+export function buildViewArm(skin: number | SkinData): THREE.Group {
   const g = new THREE.Group();
-  const arm = part(0.22, 0.22, 0.55, skin, 0);
-  arm.rotation.set(0.35, 0.55, 0.18);
-  arm.position.set(0.32, -0.24, -0.52);
+  let arm: THREE.Object3D;
+  if (typeof skin === "object") {
+    const mesh = new THREE.Mesh(geo(0.26, 0.72, 0.26), boxMats(skin, "armR", true));
+    arm = mesh;
+  } else {
+    arm = part(0.26, 0.26, 0.7, skin, 0);
+  }
+  arm.rotation.set(0.55, 0.72, 0.28);
+  arm.position.set(0.48, -0.42, -0.58);
   g.add(arm);
   const item = new THREE.Group();
-  item.position.set(0.42, -0.18, -0.78);
-  item.rotation.set(0.9, 0.35, 0.2);
+  item.position.set(0.38, -0.28, -0.82);
+  item.rotation.set(0.85, 0.45, 0.18);
   g.add(item);
   g.userData.item = item;
+  g.traverse((o) => {
+    if (!(o instanceof THREE.Mesh)) return;
+    o.renderOrder = 12;
+    const mats = Array.isArray(o.material) ? o.material : [o.material];
+    for (const m of mats) {
+      if (!m) continue;
+      m.fog = false;
+      m.depthTest = false;
+      m.depthWrite = false;
+      m.needsUpdate = true;
+    }
+  });
   return g;
 }
 
@@ -209,8 +273,20 @@ export function fillHeld(item: THREE.Group, kind: "sword" | "axe" | "bow" | "pea
   } else if (kind === "gapple") {
     item.add(part(0.16, 0.16, 0.16, 0xf0c832, 0, 0, 0, 0xf0c832));
   } else if (kind === "block") {
-    item.add(part(0.24, 0.24, 0.24, tint, 0, 0, 0));
+    item.add(part(0.28, 0.28, 0.28, tint, 0, 0, 0));
   }
+  item.traverse((o) => {
+    if (!(o instanceof THREE.Mesh)) return;
+    o.renderOrder = 13;
+    const src = o.material as THREE.MeshLambertMaterial;
+    const m = src.clone();
+    m.fog = false;
+    m.depthTest = false;
+    m.depthWrite = false;
+    m.emissive = new THREE.Color(0x222018);
+    m.emissiveIntensity = 0.25;
+    o.material = m;
+  });
 }
 
 export function swingLimbs(mesh: THREE.Group, t: number, speed: number, amount: number) {
@@ -265,18 +341,21 @@ function texFromFace(pixels: number[], w: number, h: number, flipX = false): THR
   t.minFilter = THREE.NearestFilter;
   t.generateMipmaps = false;
   t.colorSpace = THREE.SRGBColorSpace;
-  t.flipY = false;
+  t.flipY = true;
   t.needsUpdate = true;
   return t;
 }
 
-function boxMats(skin: SkinData, part: SkinPart): THREE.MeshLambertMaterial[] {
+function boxMats(skin: SkinData, part: SkinPart, basic = false): THREE.Material[] {
   const { w, h } = PART_SIZE[part];
   const px = withPixels(skin).pixels!;
-  const face = (f: SkinFace, flipX = false) =>
-    new THREE.MeshLambertMaterial({
-      map: texFromFace(getFace(px, part, f), w, h, flipX),
-    });
+  const face = (f: SkinFace, flipX = false) => {
+    const map = texFromFace(getFace(px, part, f), w, h, flipX);
+    if (basic) {
+      return new THREE.MeshBasicMaterial({ map, fog: false, depthTest: false, depthWrite: false });
+    }
+    return new THREE.MeshLambertMaterial({ map });
+  };
   // BoxGeometry: +x, -x, +y, -y, +z, -z. Character faces -Z, so -z is the painted front.
   return [face("right"), face("left", true), face("top"), face("bottom"), face("back", true), face("front")];
 }
@@ -322,6 +401,20 @@ export function makeBoatMesh(tint = 0xb8945a): THREE.Group {
   g.add(part(0.14, 0.28, 0.72, shadeHex(tint, 0.65), 0.22, 0.74, 0));
   g.add(part(0.14, 0.28, 0.72, shadeHex(tint, 0.65), 0.22, -0.74, 0));
   g.add(part(0.08, 0.7, 0.08, shadeHex(tint, 0.5), 0.55, 0.2, 0));
+  return g;
+}
+
+export function makeCartMesh(tint = 0x6a6a6a): THREE.Group {
+  const g = new THREE.Group();
+  g.add(part(0.9, 0.22, 0.7, tint, 0.28));
+  g.add(part(0.08, 0.32, 0.7, shadeHex(tint, 0.7), 0.42, 0.42, 0));
+  g.add(part(0.08, 0.32, 0.7, shadeHex(tint, 0.7), 0.42, -0.42, 0));
+  g.add(part(0.9, 0.32, 0.08, shadeHex(tint, 0.55), 0.42, 0, 0.32));
+  g.add(part(0.9, 0.32, 0.08, shadeHex(tint, 0.55), 0.42, 0, -0.32));
+  g.add(part(0.18, 0.18, 0.08, 0x2a2a2a, 0.12, 0.32, 0.28));
+  g.add(part(0.18, 0.18, 0.08, 0x2a2a2a, 0.12, -0.32, 0.28));
+  g.add(part(0.18, 0.18, 0.08, 0x2a2a2a, 0.12, 0.32, -0.28));
+  g.add(part(0.18, 0.18, 0.08, 0x2a2a2a, 0.12, -0.32, -0.28));
   return g;
 }
 

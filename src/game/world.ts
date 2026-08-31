@@ -32,6 +32,8 @@ export class World {
   private lastPlayer = { x: 0, z: 0 };
   shadows = false;
   arena: ArenaId | null = null;
+  toggled = new Set<string>();
+  passable = new Set<string>();
 
   constructor(scene: THREE.Scene, atlas: Atlas, seed: number) {
     this.scene = scene;
@@ -303,6 +305,7 @@ export class World {
       for (let iz = minZ; iz <= maxZ; iz++) {
         for (let ix = minX; ix <= maxX; ix++) {
           const id = this.getBlock(ix, iy, iz);
+          if (this.passable.has(`${ix},${iy},${iz}`)) continue;
           if (isSolid(id) && BLOCKS[id]?.shape !== "cross" && BLOCKS[id]?.shape !== "torch") return true;
         }
       }
@@ -343,6 +346,28 @@ export class World {
     return id === WATER || id === LAVA || id === FIRE || id === MAGMA || id === CACTUS;
   }
 
+  isFoliage(id: number): boolean {
+    if (!id) return false;
+    const b = BLOCKS[id];
+    if (!b) return false;
+    const k = b.key ?? "";
+    if (k.includes("leaves") || k.includes("vine") || k.includes("mushroom_block") || k.includes("wart_block")) return true;
+    if (k.includes("log") || k.includes("stem") || k.includes("hyphae")) return true;
+    if (b.cutout && b.category === "nature" && b.shape !== "cube") return true;
+    return false;
+  }
+
+  hasOpenSky(x: number, y: number, z: number): boolean {
+    const ix = Math.floor(x);
+    const iz = Math.floor(z);
+    const y0 = Math.floor(y);
+    for (let iy = y0 + 2; iy < Math.min(CHUNK_H - 1, y0 + 18); iy++) {
+      const id = this.getBlock(ix, iy, iz);
+      if (isSolid(id) && !this.isFoliage(id)) return false;
+    }
+    return true;
+  }
+
   isSafeStand(x: number, y: number, z: number, minY = SEA_LEVEL): boolean {
     const ix = Math.floor(x);
     const iz = Math.floor(z);
@@ -352,22 +377,40 @@ export class World {
     const below = this.getBlock(ix, iy - 1, iz);
     if (isSolid(feet) || isSolid(head)) return false;
     if (this.isDanger(feet) || this.isDanger(head)) return false;
-    if (!isSolid(below) || this.isDanger(below)) return false;
+    if (!isSolid(below) || this.isDanger(below) || this.isFoliage(below)) return false;
     if (iy < minY) return false;
     return true;
+  }
+
+  /** Highest non-foliage solid with two air blocks and sky above — the real surface. */
+  surfaceStandY(x: number, z: number, minY = 4): number {
+    const ix = Math.floor(x);
+    const iz = Math.floor(z);
+    for (let y = CHUNK_H - 3; y >= minY; y--) {
+      const below = this.getBlock(ix, y - 1, iz);
+      if (!isSolid(below) || this.isDanger(below) || this.isFoliage(below)) continue;
+      const feet = this.getBlock(ix, y, iz);
+      const head = this.getBlock(ix, y + 1, iz);
+      if (isSolid(feet) || isSolid(head) || this.isDanger(feet) || this.isDanger(head)) continue;
+      if (!this.hasOpenSky(ix, y, iz)) continue;
+      return y;
+    }
+    return -1;
   }
 
   findSafeSpawn(sx: number, sz: number, prefer = 56, minY = SEA_LEVEL): { x: number; y: number; z: number } {
     const ox = Math.floor(sx);
     const oz = Math.floor(sz);
     const tryCol = (x: number, z: number) => {
-      const y = this.findStandY(x + 0.5, z + 0.5, prefer);
-      if (this.isSafeStand(x + 0.5, y, z + 0.5, minY)) return { x: x + 0.5, y, z: z + 0.5 };
+      const y = this.surfaceStandY(x + 0.5, z + 0.5, Math.max(2, minY - 4));
+      if (y >= minY && this.isSafeStand(x + 0.5, y, z + 0.5, minY) && this.hasOpenSky(x + 0.5, y, z + 0.5)) {
+        return { x: x + 0.5, y, z: z + 0.5 };
+      }
       return null;
     };
     const first = tryCol(ox, oz);
     if (first) return first;
-    for (let r = 1; r <= 36; r++) {
+    for (let r = 1; r <= 48; r++) {
       for (let dx = -r; dx <= r; dx++) {
         for (let dz = -r; dz <= r; dz++) {
           if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
@@ -376,20 +419,55 @@ export class World {
         }
       }
     }
-    const y = Math.max(SEA_LEVEL + 2, this.highestSolid(sx, sz) + 2);
-    const pad = Math.floor(y) - 1;
+    // Last resort: flatten a grass pad above the column so the player is never inside a block or the void.
+    let ground = SEA_LEVEL + 3;
+    for (let y = CHUNK_H - 4; y >= 4; y--) {
+      const id = this.getBlock(ox, y, oz);
+      if (isSolid(id) && !this.isFoliage(id) && !this.isDanger(id)) {
+        ground = y + 1;
+        break;
+      }
+    }
+    ground = Math.max(minY + 1, Math.min(CHUNK_H - 6, ground));
     for (let dx = -1; dx <= 1; dx++) {
       for (let dz = -1; dz <= 1; dz++) {
         const px = ox + dx;
         const pz = oz + dz;
-        if (this.isDanger(this.getBlock(px, pad, pz)) || !isSolid(this.getBlock(px, pad, pz))) {
-          this.setBlock(px, pad, pz, 1);
-        }
-        this.setBlock(px, pad + 1, pz, 0);
-        this.setBlock(px, pad + 2, pz, 0);
+        this.setBlock(px, ground - 1, pz, 1);
+        this.setBlock(px, ground, pz, 0);
+        this.setBlock(px, ground + 1, pz, 0);
+        this.setBlock(px, ground + 2, pz, 0);
       }
     }
-    return { x: ox + 0.5, y: pad + 1, z: oz + 0.5 };
+    return { x: ox + 0.5, y: ground, z: oz + 0.5 };
+  }
+
+  /** Drain dirty chunk meshes. Returns how many were rebuilt. */
+  flushMeshes(useAo = true, max = 12): number {
+    this.buildQueue = this.buildQueue.filter((c) => this.chunks.has(chunkKey(c.dim, c.cx, c.cz)) && c.dirty);
+    for (const ch of this.chunks.values()) {
+      if (ch.dirty && !this.buildQueue.includes(ch)) this.buildQueue.push(ch);
+    }
+    this.buildQueue.sort((a, b) => {
+      const da = (a.cx + 0.5) * CHUNK_W - this.lastPlayer.x;
+      const db = (b.cx + 0.5) * CHUNK_W - this.lastPlayer.x;
+      const za = (a.cz + 0.5) * CHUNK_W - this.lastPlayer.z;
+      const zb = (b.cz + 0.5) * CHUNK_W - this.lastPlayer.z;
+      return da * da + za * za - (db * db + zb * zb);
+    });
+    let n = 0;
+    while (this.buildQueue.length && n < max) {
+      const ch = this.buildQueue.shift()!;
+      if (!this.chunks.has(chunkKey(ch.dim, ch.cx, ch.cz))) continue;
+      this.rebuild(ch, useAo);
+      n++;
+    }
+    return n;
+  }
+
+  chunkMeshedAt(x: number, z: number): boolean {
+    const ch = this.getChunk(worldToChunk(x), worldToChunk(z));
+    return !!ch && !ch.dirty;
   }
 
   dispose() {

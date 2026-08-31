@@ -85,7 +85,8 @@ export class GameAudio {
     this.beep(90 + Math.random() * 40, 0.1, "sawtooth", 0.07, -70);
   }
   step() {
-    this.noise(0.05, 0.045, 480 + Math.random() * 180, 70);
+    this.noise(0.06, 0.09, 520 + Math.random() * 220, 60);
+    this.beep(90 + Math.random() * 30, 0.04, "triangle", 0.03);
   }
   hit() {
     this.noise(0.09, 0.14, 1800, 180);
@@ -205,5 +206,43 @@ export class GameAudio {
         o.stop(now + 11.2);
       }
     }
+  }
+
+  playUrl(url: string) {
+    if (!url) {
+      this.craft();
+      return;
+    }
+    try {
+      const a = new Audio(url);
+      a.volume = Math.max(0, Math.min(1, this.volumes.master * this.volumes.sfx));
+      void a.play();
+    } catch {
+      this.craft();
+    }
+  }
+
+  playNamed(name: string, pack: Array<{ name: string; dataUrl: string }> = []) {
+    const key = (name || "").trim().toLowerCase();
+    const hit = pack.find((s) => s.name.toLowerCase() === key);
+    if (hit?.dataUrl) {
+      this.playUrl(hit.dataUrl);
+      return;
+    }
+    const builtins: Record<string, () => void> = {
+      place: () => this.place(),
+      break: () => this.break(),
+      hit: () => this.hit(),
+      hurt: () => this.hurt(),
+      jump: () => this.jump(),
+      step: () => this.step(),
+      explode: () => this.explode(),
+      portal: () => this.portal(),
+      craft: () => this.craft(),
+      pop: () => this.pop(),
+      dragon: () => this.dragon(),
+      click: () => this.click(),
+    };
+    (builtins[key] ?? (() => this.craft()))();
   }
 }

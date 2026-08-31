@@ -1,10 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Box, ChevronLeft, Heart, Pause, Users } from "lucide-react";
+import { Box, ChevronLeft, Heart, MessageSquare, Pause, Users } from "lucide-react";
 import { BLOCKS, BLOCK_COUNT } from "@/game/blocks";
 import { consumeGrid, matchRecipe, mergeInto, trySmelt } from "@/game/crafting";
 import { Engine } from "@/game/engine";
 import { displayName, getDef, ITEMS } from "@/game/items";
-import { loadChunks, loadPlayer, newWorldMeta, registerAccount, saveSession } from "@/game/save";
+import { loadChunks, loadPlayer, loadSession, newWorldMeta, saveSession, signInAccount, signUpAccount, enterGuest } from "@/game/save";
 import { resolveSkin } from "@/game/skins";
 import type { ArenaId, GameMode, Slot, WorldMeta } from "@/game/types";
 import { compileGame, loadGames } from "@/game/scratch";
@@ -63,20 +63,22 @@ export function GameApp() {
 function MenuShell() {
   const phase = useApp((s) => s.phase);
   const overlay = useApp((s) => s.overlay);
+  const guest = useApp((s) => s.profile.guest);
   return (
     <div className="relative flex h-full flex-col">
       <TitlePano />
       <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-b from-black/25 via-transparent to-black/55" />
       <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-none">
+        {phase === "boot" && <BootScreen />}
         {phase === "login" && <LoginScreen />}
         {(phase === "title" || phase === "menu") && <TitleScreen />}
         {phase === "worlds" && <WorldSelect />}
         {phase === "create" && <CreateWorld />}
-        {phase === "lobby" && <Lobby />}
-        {phase === "skins" && <SkinStudio />}
-        {phase === "minigames" && <Minigames />}
-        {phase === "friends" && <FriendsScreen />}
-        {phase === "market" && <Marketplace />}
+        {phase === "lobby" && (guest ? <GuestDenied extra="Online play needs an account." /> : <Lobby />)}
+        {phase === "skins" && (guest ? <GuestDenied extra="The dressing room needs an account." /> : <SkinStudio />)}
+        {phase === "minigames" && (guest ? <GuestDenied extra="Mini games need an account." /> : <Minigames />)}
+        {phase === "friends" && (guest ? <GuestDenied extra="Friends lists need an account." /> : <FriendsScreen />)}
+        {phase === "market" && (guest ? <GuestDenied extra="The marketplace needs an account." /> : <Marketplace />)}
         {phase === "lab" && <GameLab />}
         {phase === "playhub" && <PlayHub />}
       </div>
@@ -117,38 +119,52 @@ function bootArena(kind: ArenaId) {
 function TitleScreen() {
   const setPhase = useApp((s) => s.setPhase);
   const profile = useApp((s) => s.profile);
+  const guest = profile.guest;
   const splash = SPLASH[Math.floor(Date.now() / 8000) % SPLASH.length]!;
   return (
     <div className="relative flex h-full flex-col px-4 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))]">
-      <div className="relative mx-auto mt-[6vh] mb-4 select-none">
+      <div className="relative mx-auto mt-[5vh] mb-5 select-none">
         <div className="mc-logo-cubes" aria-hidden>
           <span className="mc-logo-cube" />
           <span className="mc-logo-cube mc-logo-cube-b" />
         </div>
-        <h1 className="pixel-title mc-logo-3d text-center text-[3.6rem] leading-[0.76] sm:text-8xl">
+        <h1 className="pixel-title mc-logo-3d text-center text-[4rem] leading-[0.74] sm:text-8xl md:text-9xl">
           MINE
           <span className="block text-[#3f3]">OR CRAFT</span>
         </h1>
-        <p className="mc-splash absolute -right-2 -bottom-4 max-w-[13rem] text-right text-base font-bold sm:right-[-6rem] sm:bottom-0 sm:text-xl">
+        <p className="mc-splash absolute -right-2 -bottom-4 max-w-[14rem] text-right text-base font-bold sm:right-[-7rem] sm:bottom-0 sm:text-2xl">
           {splash}
         </p>
       </div>
-      <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col items-stretch gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="mc-menu-stack w-full max-w-[340px] space-y-2 p-3 sm:p-4">
+      <div className="mx-auto flex w-full max-w-5xl flex-1 flex-col items-stretch gap-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mc-menu-stack w-full max-w-[400px] space-y-2.5 p-4 sm:p-5">
           <McBtn primary onClick={() => setPhase("playhub")}>
             Play
           </McBtn>
           <McBtn onClick={() => useApp.getState().setOverlay("settings")}>Settings</McBtn>
-          <McBtn className="mc-btn-dual" onClick={() => setPhase("market")}>
-            Marketplace
-          </McBtn>
-          <McBtn onClick={() => setPhase("skins")}>Dressing Room</McBtn>
-          <McBtn onClick={() => setPhase("lab")}>Game Lab</McBtn>
+          {!guest && (
+            <>
+              <McBtn className="mc-btn-dual" onClick={() => setPhase("market")}>
+                Marketplace
+              </McBtn>
+              <McBtn onClick={() => setPhase("skins")}>Dressing Room</McBtn>
+              <McBtn onClick={() => setPhase("lab")}>Game Lab</McBtn>
+            </>
+          )}
+          {guest && (
+            <p className="px-1 text-center text-[11px] text-muted">
+              Guest — local worlds and settings only. Sign in for marketplace, skins, online, friends, and mini games.
+            </p>
+          )}
         </div>
-        <button type="button" className="mx-auto flex flex-col items-center gap-2 sm:mx-0" onClick={() => setPhase("skins")}>
-          <SkinPreview skin={resolveSkin(profile.skin)} size={140} />
+        <button
+          type="button"
+          className="mx-auto flex flex-col items-center gap-2 sm:mx-0"
+          onClick={() => (guest ? undefined : setPhase("skins"))}
+        >
+          <SkinPreview skin={resolveSkin(profile.skin)} size={160} />
           <span className="text-center">
-            <span className="block text-sm">{profile.username}</span>
+            <span className="block text-sm">{profile.username}{guest ? " · Guest" : ""}</span>
             <span className="text-[11px] text-muted">
               {profile.xp} XP · {profile.stars ?? 0}/100 ★ · {profile.diamonds ?? 0} ◆
             </span>
@@ -156,7 +172,7 @@ function TitleScreen() {
         </button>
       </div>
       <div className="mt-3 flex w-full items-end justify-between px-1">
-        <span className="text-[11px] text-muted">v1.21.8</span>
+        <span className="text-[11px] text-muted">v1.0</span>
         <button
           type="button"
           className="text-[11px] text-muted"
@@ -175,6 +191,7 @@ function TitleScreen() {
 function PlayHub() {
   const setPhase = useApp((s) => s.setPhase);
   const worlds = useApp((s) => s.worlds);
+  const guest = useApp((s) => s.profile.guest);
   const last = worlds[0];
   const saves = loadGames();
   const folders = [...new Set(saves.map((g) => g.folder || "Saves"))];
@@ -190,6 +207,7 @@ function PlayHub() {
             primary
             onClick={() => {
               useApp.getState().setActive(last);
+              useApp.getState().setNet({ multiplayer: false, isHost: true });
               void bootWorld(last);
             }}
           >
@@ -199,10 +217,17 @@ function PlayHub() {
         <McBtn primary={!last} onClick={() => setPhase("worlds")}>
           Local worlds
         </McBtn>
-        <McBtn onClick={() => setPhase("lobby")}>Online / Realms</McBtn>
-        <McBtn onClick={() => setPhase("minigames")}>Mini Games</McBtn>
-        <McBtn onClick={() => setPhase("friends")}>Friends</McBtn>
+        {!guest && (
+          <>
+            <McBtn onClick={() => setPhase("lobby")}>Online / Realms</McBtn>
+            <McBtn onClick={() => setPhase("minigames")}>Mini Games</McBtn>
+            <McBtn onClick={() => setPhase("friends")}>Friends</McBtn>
+          </>
+        )}
+        {guest && <p className="text-sm text-muted">Guest: local worlds only. Sign in to play online, mini games, and friends.</p>}
       </div>
+      {!guest && (
+        <>
       <h3 className="mt-5 mb-2 text-sm font-medium">Game Lab saves</h3>
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
         {saves.length === 0 && <p className="text-sm text-muted">No saved packs. Open Game Lab from the title to make one.</p>}
@@ -231,70 +256,237 @@ function PlayHub() {
           </div>
         ))}
       </div>
+        </>
+      )}
     </div>
   );
 }
 
-function LoginScreen() {
+function BootScreen() {
   const setPhase = useApp((s) => s.setPhase);
-  const setProfile = useApp((s) => s.setProfile);
-  const [name, setName] = useState("");
-  const [pass, setPass] = useState("");
-  const [msg, setMsg] = useState("");
-  const enter = (guest: boolean, signup: boolean) => {
-    const n = (name.trim() || (guest ? "Player" : "")).slice(0, 16);
-    if (!n) {
-      setMsg("Pick a username.");
-      return;
-    }
-    if (!guest && !pass) {
-      setMsg("Password required to sign in or sign up.");
-      return;
-    }
-    const res = registerAccount(n, guest ? "" : pass);
-    if (!res.ok) {
-      setMsg(res.msg);
-      return;
-    }
-    setProfile({ ...res.profile, guest });
-    saveSession(n);
-    setPhase("title");
-    void signup;
-  };
+  const [pct, setPct] = useState(4);
+  const [msg, setMsg] = useState("Waking the world…");
+  useEffect(() => {
+    const steps = [
+      "Loading block atlas…",
+      "Painting biomes…",
+      "Rigging mobs…",
+      "Opening the account vault…",
+      "Checking last session…",
+      "Ready.",
+    ];
+    const start = performance.now();
+    const total = 2600;
+    let raf = 0;
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      setPct(100);
+      setMsg("Ready.");
+      setPhase("login");
+    };
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - start) / total);
+      setPct(Math.round(t * 100));
+      setMsg(steps[Math.min(steps.length - 1, Math.floor(t * steps.length))]!);
+      if (t >= 1) finish();
+      else raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    const failSafe = window.setTimeout(finish, 4200);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(failSafe);
+    };
+  }, [setPhase]);
   return (
-    <div className="relative flex h-full flex-col items-center px-4 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
-      <h1 className="pixel-title mc-logo-3d mt-[8vh] text-center text-[2.8rem] leading-[0.85] sm:text-6xl">
+    <div className="relative flex h-full flex-col items-center justify-center px-6">
+      <h1 className="pixel-title mc-logo-3d text-center text-[2.8rem] leading-[0.82] sm:text-7xl">
         MINE
         <span className="block text-[#3f3]">OR CRAFT</span>
       </h1>
-      <div className="mt-8 flex w-full max-w-[480px] flex-col items-center gap-4 sm:flex-row sm:items-stretch">
+      <p className="mt-8 text-sm text-fg/90">{msg}</p>
+      <div className="mt-4 h-3 w-full max-w-sm border-2 border-black bg-slot-dark">
+        <div className="h-full bg-xp transition-[width] duration-200" style={{ width: `${pct}%` }} />
+      </div>
+      <p className="hud-num mt-2 text-sm text-xp">{pct}%</p>
+      <p className="mt-8 text-[11px] tracking-widest text-muted">v1.0</p>
+    </div>
+  );
+}
+
+const TOS = `MINE OR CRAFT — TERMS OF SERVICE (placeholder)
+
+1. Don't hack, cheat, exploit, or grief public servers or other players' hosted worlds.
+2. Don't upload sexual, hateful, or illegal skins, packs, or chat.
+3. Game Lab mods only affect your worlds and the friends who join them — never someone else's server.
+4. Guests play locally. Publishing, marketplace, online, friends, and mini games need an account.
+5. We may remove content that breaks these rules. Play fair. Have fun.
+
+This is a community sandbox. Breaking the rules can get your account locked on this device.`;
+
+function LoginScreen() {
+  const setPhase = useApp((s) => s.setPhase);
+  const setProfile = useApp((s) => s.setProfile);
+  const [view, setView] = useState<"choose" | "signin" | "signup">("choose");
+  const [name, setName] = useState("");
+  const [pass, setPass] = useState("");
+  const [tos, setTos] = useState(false);
+  const [msg, setMsg] = useState("");
+  const remembered = loadSession();
+  const continueRemembered = () => {
+    const session = loadSession();
+    if (!session) return;
+    if (session.startsWith("guest:")) {
+      setProfile(enterGuest(session.slice(6)));
+      setPhase("title");
+      return;
+    }
+    const p = useApp.getState().profile;
+    if (p.username.toLowerCase() === session.toLowerCase() && !p.guest) {
+      saveSession(session);
+      setPhase("title");
+      return;
+    }
+    setName(session);
+    setView("signin");
+    setMsg("Enter your password to continue.");
+  };
+  return (
+    <div className="relative flex h-full flex-col items-center px-4 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
+      <h1 className="pixel-title mc-logo-3d mt-[4vh] text-center text-[2.4rem] leading-[0.85] sm:mt-[7vh] sm:text-7xl">
+        MINE
+        <span className="block text-[#3f3]">OR CRAFT</span>
+      </h1>
+      <div className="mt-8 flex w-full max-w-[520px] flex-col items-center gap-4 sm:flex-row sm:items-stretch">
         <div className="flex flex-col items-center justify-center px-2">
           <SkinPreview skin={resolveSkin("steve")} size={168} />
           <p className="mt-2 text-[11px] tracking-wide text-muted">Player skin</p>
         </div>
         <div className="min-w-0 flex-1 space-y-2">
-          <p className="text-center text-sm text-muted">Sign in, create an account, or play as guest. This device remembers you.</p>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value.slice(0, 16))}
-            placeholder="Username"
-            className="min-h-11 w-full border-2 border-black bg-[#00000088] px-3 text-fg outline-none"
-          />
-          <input
-            type="password"
-            value={pass}
-            onChange={(e) => setPass(e.target.value.slice(0, 32))}
-            placeholder="Password"
-            className="min-h-11 w-full border-2 border-black bg-[#00000088] px-3 text-fg outline-none"
-          />
-          {msg && <p className="text-sm text-danger">{msg}</p>}
-          <McBtn primary onClick={() => enter(false, false)}>
-            Sign in
-          </McBtn>
-          <McBtn onClick={() => enter(false, true)}>Sign up</McBtn>
-          <McBtn onClick={() => enter(true, false)}>Play as guest</McBtn>
+          {view === "choose" && (
+            <>
+              <p className="text-center text-sm text-muted">Sign in, create an account, or play as guest.</p>
+              {remembered && (
+                <McBtn primary onClick={continueRemembered}>
+                  Continue as {remembered.replace(/^guest:/, "")}
+                </McBtn>
+              )}
+              <McBtn primary={!remembered} onClick={() => setView("signin")}>
+                Sign in
+              </McBtn>
+              <McBtn onClick={() => setView("signup")}>Sign up</McBtn>
+              <McBtn
+                onClick={() => {
+                  setProfile(enterGuest("Guest"));
+                  setPhase("title");
+                }}
+              >
+                Play as guest
+              </McBtn>
+              <p className="text-center text-[11px] text-muted">Guests play locally only. No marketplace, skins, online, friends, or mini games.</p>
+            </>
+          )}
+          {view === "signin" && (
+            <>
+              <p className="text-center text-sm text-muted">Welcome back. If this name is not in the vault, sign up first.</p>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value.slice(0, 16))}
+                placeholder="Username"
+                className="min-h-12 w-full border-2 border-black bg-[#00000088] px-3 text-fg outline-none"
+              />
+              <input
+                type="password"
+                value={pass}
+                onChange={(e) => setPass(e.target.value.slice(0, 32))}
+                placeholder="Password"
+                className="min-h-12 w-full border-2 border-black bg-[#00000088] px-3 text-fg outline-none"
+              />
+              {msg && <p className="text-sm text-danger">{msg}</p>}
+              <McBtn
+                primary
+                onClick={() => {
+                  const res = signInAccount(name, pass);
+                  if (!res.ok) {
+                    setMsg(res.msg);
+                    return;
+                  }
+                  setProfile(res.profile);
+                  setPhase("title");
+                }}
+              >
+                Sign in
+              </McBtn>
+              <McBtn onClick={() => { setView("choose"); setMsg(""); }}>Back</McBtn>
+            </>
+          )}
+          {view === "signup" && (
+            <>
+              <p className="text-center text-sm text-muted">Create an account. You must agree to the terms.</p>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value.slice(0, 16))}
+                placeholder="Username"
+                className="min-h-12 w-full border-2 border-black bg-[#00000088] px-3 text-fg outline-none"
+              />
+              <input
+                type="password"
+                value={pass}
+                onChange={(e) => setPass(e.target.value.slice(0, 32))}
+                placeholder="Password (4+ characters)"
+                className="min-h-12 w-full border-2 border-black bg-[#00000088] px-3 text-fg outline-none"
+              />
+              <div className="max-h-24 overflow-y-auto border-2 border-black bg-[#00000088] p-2 text-[11px] leading-5 text-muted whitespace-pre-wrap">
+                {TOS}
+              </div>
+              <label className="flex min-h-11 items-center gap-2 text-sm">
+                <input type="checkbox" checked={tos} onChange={(e) => setTos(e.target.checked)} />
+                I agree not to hack the game or break the terms.
+              </label>
+              {msg && <p className="text-sm text-danger">{msg}</p>}
+              <McBtn
+                primary
+                onClick={() => {
+                  if (!tos) {
+                    setMsg("Accept the terms of service to sign up.");
+                    return;
+                  }
+                  const res = signUpAccount(name, pass);
+                  if (!res.ok) {
+                    setMsg(res.msg);
+                    return;
+                  }
+                  setProfile(res.profile);
+                  setPhase("title");
+                }}
+              >
+                Create account
+              </McBtn>
+              <McBtn onClick={() => { setView("choose"); setMsg(""); }}>Back</McBtn>
+            </>
+          )}
         </div>
       </div>
+    </div>
+  );
+}
+
+function GuestDenied({ extra }: { extra?: string }) {
+  const setPhase = useApp((s) => s.setPhase);
+  return (
+    <div className="mx-auto flex h-full w-full max-w-lg flex-col px-5 py-6">
+      <button type="button" onClick={() => setPhase("title")} className="mb-3 flex items-center gap-1 text-sm text-muted">
+        <ChevronLeft className="size-4" /> Back
+      </button>
+      <h2 className="pixel-title mb-3 text-3xl">Sign in required</h2>
+      <p className="mb-4 text-sm text-muted">
+        Guests can play local worlds and open Settings. {extra ?? "Sign in to use this."}
+      </p>
+      <McBtn primary onClick={() => { saveSession(null); setPhase("login"); }}>
+        Sign in
+      </McBtn>
     </div>
   );
 }
@@ -305,6 +497,7 @@ function FriendsScreen() {
   const setProfile = useApp((s) => s.setProfile);
   const [fname, setFname] = useState("");
   const [code, setCode] = useState("");
+  if (profile.guest) return <GuestDenied extra="Friends lists need an account." />;
   const friends = profile.friends ?? [];
   const add = () => {
     const n = fname.trim().slice(0, 16);
@@ -783,6 +976,13 @@ function Hud({ hud }: { hud: NonNullable<ReturnType<typeof useApp.getState>["hud
       {hud.blocking && (
         <p className="absolute top-[46%] left-1/2 -translate-x-1/2 text-[10px] tracking-widest text-white/80">BLOCKING</p>
       )}
+      {(hud.bowCharge ?? 0) > 0.05 && (
+        <div className="absolute top-[58%] left-1/2 w-28 -translate-x-1/2">
+          <div className="h-1.5 border border-black bg-slot-dark">
+            <div className="h-full bg-[#c8a05a]" style={{ width: `${Math.round((hud.bowCharge ?? 0) * 100)}%` }} />
+          </div>
+        </div>
+      )}
       {hud.arena && (
         <div className="pointer-events-none absolute top-3 left-1/2 w-[min(360px,86%)] -translate-x-1/2 text-center">
           <p className="pixel-title text-lg tracking-wide">{hud.arena === "duel" ? "DUAL" : hud.arena.toUpperCase()}</p>
@@ -809,6 +1009,15 @@ function Hud({ hud }: { hud: NonNullable<ReturnType<typeof useApp.getState>["hud
       {hud.wraith && <p className="absolute top-10 left-1/2 -translate-x-1/2 text-xs tracking-widest text-fg">THE PALE ONE IS HERE</p>}
       {hud.toast && (
         <p className="absolute top-16 left-1/2 -translate-x-1/2 bg-black/60 px-3 py-1 text-sm">{hud.toast}</p>
+      )}
+      {hud.chat.length > 0 && (
+        <div className="absolute bottom-24 left-3 max-w-[min(420px,70%)] space-y-0.5 bg-black/45 px-2 py-1 text-[11px] leading-4">
+          {hud.chat.slice(-6).map((line, i) => (
+            <p key={i} className="break-words text-fg/90">
+              {line}
+            </p>
+          ))}
+        </div>
       )}
       <div className="hud-cluster absolute left-1/2 flex w-[min(420px,96%)] -translate-x-1/2 flex-col items-center gap-1 pb-[env(safe-area-inset-bottom)]">
         {hud.mode !== "creative" && (
@@ -882,6 +1091,18 @@ function Hud({ hud }: { hud: NonNullable<ReturnType<typeof useApp.getState>["hud
         </p>
       )}
       <div className="absolute top-2 right-2 pointer-events-auto z-50 flex gap-2 pt-[env(safe-area-inset-top)] pr-[env(safe-area-inset-right)]">
+        <button
+          type="button"
+          className="mc-btn size-12 p-0 sm:size-11"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            getEngine()?.setOverlay("chat");
+          }}
+          aria-label="Chat"
+        >
+          <MessageSquare className="mx-auto size-5" />
+        </button>
         <button
           type="button"
           className="mc-btn size-12 p-0 sm:size-11"
@@ -1050,10 +1271,12 @@ function MobileControls() {
 function PauseMenu() {
   const setOverlay = useApp((s) => s.setOverlay);
   const setPhase = useApp((s) => s.setPhase);
+  const mp = useApp((s) => s.multiplayer);
   return (
     <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/60 px-5">
       <div className="mc-panel w-full max-w-sm p-6">
-        <h2 className="pixel-title mb-4 text-center text-2xl">Paused</h2>
+        <h2 className="pixel-title mb-2 text-center text-2xl">{mp ? "Game Menu" : "Paused"}</h2>
+        {mp && <p className="mb-4 text-center text-[11px] text-muted">Online worlds keep running. You are the only one in this menu.</p>}
         <div className="space-y-3">
           <McBtn
             primary
@@ -1108,7 +1331,7 @@ function StudioTools() {
   };
   const give = (id: number) => {
     if (blocked) return;
-    e.player.give(id, id < 10000 ? 64 : 1);
+    e.player.give(id, id < 10000 || id === 10033 || id === 10107 ? 32 : 1);
     e.toastMsg("Gave item");
     setTick((n) => n + 1);
   };
@@ -1134,6 +1357,7 @@ function StudioTools() {
           {row("speed", "Speed")}
           {row("fullbright", "Fullbright")}
           {row("freeze", "Freeze time")}
+          {row("hitboxes", "Show hitboxes")}
           <div className="grid grid-cols-2 gap-1">
             <button type="button" className="mc-btn min-h-10 text-xs" onClick={() => give(10023)}>
               Sword
@@ -1144,8 +1368,25 @@ function StudioTools() {
             <button type="button" className="mc-btn min-h-10 text-xs" onClick={() => give(42)}>
               Torch
             </button>
-            <button type="button" className="mc-btn min-h-10 text-xs" onClick={() => give(10055)}>
-              Gapple
+            <button
+              type="button"
+              className="mc-btn min-h-10 text-xs"
+              onClick={() => {
+                give(10032);
+                give(10033);
+              }}
+            >
+              Bow
+            </button>
+            <button
+              type="button"
+              className="mc-btn min-h-10 text-xs"
+              onClick={() => {
+                give(10106);
+                give(10107);
+              }}
+            >
+              Elytra
             </button>
           </div>
           <McBtn
@@ -1384,8 +1625,30 @@ function ChatOverlay() {
   const [val, setVal] = useState("");
   const setOverlay = useApp((s) => s.setOverlay);
   const cheatsOn = !!useApp.getState().active?.cheats || !!useApp.getState().active?.modJson || useApp.getState().active?.mode === "creative";
+  const mp = useApp((s) => s.multiplayer);
+  const close = () => {
+    engineRef?.closeChat();
+    setOverlay("none");
+  };
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        e.preventDefault();
+        close();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      engineRef?.input.releaseAll();
+      if (engineRef) {
+        engineRef.input.enabled = true;
+        engineRef.paused = false;
+      }
+    };
+  }, []);
   return (
-    <div className="absolute inset-x-0 bottom-0 z-30 bg-black/70 p-3">
+    <div className="absolute inset-x-0 bottom-0 z-30 bg-black/70 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
       <form
         onSubmit={(e) => {
           e.preventDefault();
@@ -1399,24 +1662,32 @@ function ChatOverlay() {
               engineRef?.chat.push(r);
             }
           } else if (text) {
-            engineRef?.chat.push(`${useApp.getState().profile.username}: ${text}`);
+            const line = `${useApp.getState().profile.username}: ${text}`;
+            engineRef?.chat.push(line);
+            engineRef?.netChat.push(line);
+            engineRef?.onPlayerChat(text);
           }
-          engineRef?.setOverlay("none");
-          setOverlay("none");
+          close();
         }}
       >
         <input
           autoFocus
           value={val}
           onChange={(e) => setVal(e.target.value)}
-          className="min-h-11 w-full border-2 border-black bg-elevated px-3"
-          placeholder={cheatsOn ? "Message or /command" : "Message"}
+          onKeyDown={(e) => {
+            if (e.key === "Escape") {
+              e.preventDefault();
+              close();
+            }
+          }}
+          className="min-h-12 w-full border-2 border-black bg-elevated px-3"
+          placeholder={cheatsOn ? "Message or /command" : mp ? "Say something" : "Message"}
         />
       </form>
       {cheatsOn ? (
-        <p className="mt-1 text-[11px] text-muted">/give 1 64 · /gamemode creative · /time day · /weather clear</p>
+        <p className="mt-1 text-[11px] text-muted">/give 1 64 · /gamemode creative · /time day · /weather clear · Esc to close</p>
       ) : (
-        <p className="mt-1 text-[11px] text-muted">Chat only. Commands need Allow cheats on the world, or a Game Lab playtest.</p>
+        <p className="mt-1 text-[11px] text-muted">{mp ? "Online chat. Everyone keeps playing while you type." : "Chat only. Commands need Allow cheats."} Esc closes.</p>
       )}
     </div>
   );
@@ -1521,15 +1792,21 @@ function NetBridge() {
   }, [net.peers]);
   useEffect(() => {
     const un = net.onMessage((_from, data) => {
-      const d = data as { t?: string; x?: number; y?: number; z?: number };
+      const d = data as { t?: string; x?: number; y?: number; z?: number; text?: string };
       if (d?.t === "pos") {
         /* guests render host world locally; positions are informational */
+      }
+      if (d?.t === "chat" && typeof d.text === "string") {
+        getEngine()?.chat.push(d.text.slice(0, 140));
       }
     });
     const id = window.setInterval(() => {
       const e = getEngine();
       if (!e) return;
       net.broadcast({ t: "pos", x: e.player.x, y: e.player.y, z: e.player.z, name: profile.username });
+      if (e.netChat.length) {
+        for (const line of e.netChat.splice(0, e.netChat.length)) net.broadcast({ t: "chat", text: line });
+      }
     }, 80);
     return () => {
       un();

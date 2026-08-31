@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { animateAtlas, getSharedAtlas, type Atlas } from "./atlas";
-import { BLOCKS, COMMAND_BLOCK, CRAFTING_TABLE, END_PORTAL, FIRE, FURNACE, LAVA, NETHER_PORTAL, OBSIDIAN, WATER, isFluid, registerCustomBlock } from "./blocks";
+import { BLOCKS, BY_KEY, COMMAND_BLOCK, CRAFTING_TABLE, END_PORTAL, FIRE, FURNACE, LAVA, NETHER_PORTAL, OBSIDIAN, TNT, WATER, isFluid, isSolid, registerCustomBlock } from "./blocks";
 import { GameAudio } from "./audio";
 import { findSpawn, strongholdChunk, biomeAtIndex } from "./gen";
 import { Input } from "./input";
@@ -35,6 +35,7 @@ import {
   IRON_PICK,
   EYE_OF_ENDER,
   isBoatItem,
+  MINECART,
   isPotionItem,
   POTION_NIGHT,
   POTION_SPEED,
@@ -50,11 +51,13 @@ import {
   MACE,
   WIND_CHARGE,
   BUCKET,
+  FIREWORK,
+  CROSSBOW,
 } from "./items";
 import { ARENA_BOT, ARENA_SPAWN, duelStats, isArena } from "./arenas";
 import { ADV_BY_ID, ADVANCEMENTS } from "./advancements";
 import { disposeMob, hitMob, spawnMob, trySpawn, updateMobs, type Mob, type MobKind } from "./mobs";
-import { addHeld, addSkinnedHumanoid, buildViewArm, fillHeld, heldKind, makeBoatMesh, swingLimbs } from "./models";
+import { addHeld, addSkinnedHumanoid, buildViewArm, fillHeld, heldKind, makeBoatMesh, makeCartMesh, swingLimbs } from "./models";
 import { resolveSkin } from "./skins";
 import { Player } from "./player";
 import { voxelRay } from "./raycast";
@@ -62,6 +65,16 @@ import { saveChunks, savePlayer } from "./save";
 import { CHUNK_W, SEA_LEVEL, type Dim, type GameMode, type PlayerSave, type Settings, type WorldMeta } from "./types";
 import { World } from "./world";
 import { useApp, type HudSnap, type Overlay } from "@/store/app-store";
+import {
+  applyLamps,
+  blockKind,
+  collectPowerSources,
+  isRail,
+  isTnt,
+  posKey,
+  propagateDust,
+  pushPiston,
+} from "./mechanics";
 
 const DAY_LEN = 1200;
 
@@ -103,6 +116,7 @@ export class Engine {
   fpsT = 0;
   highlight: THREE.LineSegments;
   hand: THREE.Group;
+  lamp: THREE.PointLight;
   clouds: THREE.Group;
   particles: THREE.Points;
   particleGeo: THREE.BufferGeometry;
@@ -116,7 +130,9 @@ export class Engine {
   playXpBatch = 0;
   scriptScore = 0;
   modScripts: { when: string; every: number; do: { op: string; id?: number; count?: number; text?: string; kind?: string; value?: number }[]; t: number }[] = [];
-  studio = { fly: false, god: false, fullbright: false, speed: false, freeze: false };
+  customSounds: { name: string; dataUrl: string }[] = [];
+  labHurtLatch = false;
+  studio = { fly: false, god: false, fullbright: false, speed: false, freeze: false, hitboxes: false };
   saveTimer = 0;
   afk = 0;
   wraith: Mob | null = null;
@@ -179,6 +195,18 @@ export class Engine {
     occupied: boolean;
     tint: number;
   }[] = [];
+  carts: {
+    x: number;
+    y: number;
+    z: number;
+    yaw: number;
+    vx: number;
+    vz: number;
+    mesh: THREE.Group;
+    occupied: boolean;
+  }[] = [];
+  netChat: string[] = [];
+  platePower = new Set<string>();
   modRules: {
     keepInventory?: boolean;
     doMobSpawning?: boolean;
@@ -187,6 +215,21 @@ export class Engine {
     doDaylightCycle?: boolean;
   } = {};
   modAi: { default?: Mob["ai"]; aggression?: number; strafe?: boolean; flee?: boolean } = {};
+  bowCharge = 0;
+  shots: {
+    kind: "arrow" | "pearl" | "eye";
+    x: number;
+    y: number;
+    z: number;
+    vx: number;
+    vy: number;
+    vz: number;
+    life: number;
+    dmg: number;
+    mesh: THREE.Mesh;
+  }[] = [];
+  hitboxPool: THREE.LineSegments[] = [];
+  hitboxGeo: THREE.BufferGeometry | null = null;
 
   constructor(canvas: HTMLCanvasElement, meta: WorldMeta, settings: Settings, hooks: EngineHooks) {
     this.canvas = canvas;
@@ -297,8 +340,11 @@ export class Engine {
     this.highlight = new THREE.LineSegments(hg, new THREE.LineBasicMaterial({ color: 0x000000, linewidth: 1 }));
     this.scene.add(this.highlight);
 
-    this.hand = buildViewArm(0xc4a06a);
+    this.hand = buildViewArm(resolveSkin(useApp.getState().profile.skin));
     this.camera.add(this.hand);
+    this.lamp = new THREE.PointLight(0xfff1d0, 0.55, 16, 1.4);
+    this.lamp.position.set(0, 0.1, -0.2);
+    this.camera.add(this.lamp);
     this.scene.add(this.camera);
 
     this.playerBody = new THREE.Group();
@@ -422,27 +468,18 @@ export class Engine {
       this.dim,
       this.hooks.onProgress,
     );
-    const slices = 36;
-    for (let i = 0; i < slices; i++) {
-      this.world.processBuilds(8, this.settings.ao);
-      this.hooks.onProgress?.(`Carving chunks ${i + 1}/${slices}`, 0.5 + 0.5 * ((i + 1) / slices));
+    let carved = 0;
+    for (let i = 0; i < 80; i++) {
+      const n = this.world.flushMeshes(this.settings.ao, 10);
+      carved += n;
+      this.hooks.onProgress?.(`Carving chunks ${carved}`, 0.5 + 0.42 * Math.min(1, (i + 1) / 40));
+      if (n === 0 && this.world.chunkMeshedAt(this.player.x, this.player.z)) break;
       await new Promise((r) => setTimeout(r, 0));
     }
-    if (!save) {
-      if (isArena(this.meta.arena)) {
-        const s = ARENA_SPAWN[this.meta.arena];
-        this.player.x = s.x;
-        this.player.y = s.y;
-        this.player.z = s.z;
-        this.worldTime = DAY_LEN * 0.48;
-      } else {
-        const safe = this.world.findSafeSpawn(this.player.x, this.player.z);
-        this.player.x = safe.x;
-        this.player.y = safe.y;
-        this.player.z = safe.z;
-        this.meta.spawn = { x: safe.x, y: safe.y, z: safe.z };
-      }
-    }
+    this.hooks.onProgress?.("Finding a safe foothold…", 0.94);
+    this.seatPlayer(!!save);
+    this.world.flushMeshes(this.settings.ao, 20);
+    this.hooks.onProgress?.("Lighting the sky…", 0.97);
     this.applyDimVisuals();
     if (this.meta.modJson && !isArena(this.meta.arena)) this.applyModJson();
     if (isArena(this.meta.arena)) {
@@ -476,6 +513,8 @@ export class Engine {
     this.last = performance.now();
     this.loop(this.last);
     this.installControlsTest();
+    this.dressPlayer(!!this.player.armor[1]);
+    this.runScripts("join");
     this.chat.push("Welcome to Mine or Craft.");
     if (this.meta.arena) this.chat.push("Arena: respawn at your pad. PvP on.");
     else this.chat.push("Punch a tree. Craft a bench. Survive the night.");
@@ -576,11 +615,18 @@ export class Engine {
         textures?: Record<string, string>;
         customBlocks?: { slot: number; name: string; tint: number; pixels: number[] }[];
         sounds?: { name: string; dataUrl: string }[];
-        bosses?: { kind: string; name: string; hp: number }[];
+        bosses?: { kind: string; name: string; hp: number; tint?: number }[];
         spawnBiome?: string;
         jsonRaw?: string;
         allowCheats?: boolean;
+        author?: string;
+        xpFarm?: boolean;
       };
+      if (mod.xpFarm) this.meta.xpFarm = true;
+      if (mod.author) {
+        this.meta.author = mod.author;
+        this.meta.labGame = true;
+      }
       if (Array.isArray(mod.kit) && mod.kit.length) {
         this.player.inventory = Array.from({ length: 36 }, () => null);
         for (const s of mod.kit) {
@@ -622,17 +668,13 @@ export class Engine {
         }
       }
       if (mod.textures) {
-        const keyToId: Record<string, number> = { grass: 1, stone: 3, dirt: 2, oak_log: 8, sand: 5, netherrack: 30, water: 6, oak_planks: 19, cobble: 18, glass: 43 };
         for (const [k, hex] of Object.entries(mod.textures)) {
-          const id = keyToId[k];
-          if (!id || !hex) continue;
+          const def = BY_KEY.get(k) ?? BLOCKS[Number(k)];
+          if (!def || !hex) continue;
           const n = parseInt(hex.replace("#", ""), 16);
           if (!Number.isFinite(n)) continue;
-          const def = BLOCKS[id];
-          if (def) {
-            def.tint = n;
-            def.tintTop = n;
-          }
+          def.tint = n;
+          def.tintTop = n;
         }
       }
       if (Array.isArray(mod.commands)) {
@@ -644,9 +686,18 @@ export class Engine {
       if (Array.isArray(mod.bosses)) {
         for (const b of mod.bosses) {
           try {
-            const m = spawnMob(b.kind as MobKind, this.player.x + 12, this.player.y + 8, this.player.z + 12, this.scene);
+            const kind = (b.kind === "custom" ? "custom_boss" : b.kind) as MobKind;
+            const m = spawnMob(kind, this.player.x + 12, this.player.y + 8, this.player.z + 12, this.scene);
             m.hp = b.hp || m.hp;
             m.max = m.hp;
+            m.label = b.name;
+            if (b.tint) {
+              m.mesh.traverse((o) => {
+                if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshLambertMaterial) {
+                  o.material.color.setHex(b.tint!);
+                }
+              });
+            }
             this.mobs.push(m);
           } catch {
             /* */
@@ -654,6 +705,7 @@ export class Engine {
         }
       }
       this.dressPlayer(!!this.player.armor[1]);
+      if (Array.isArray(mod.sounds)) this.customSounds = mod.sounds.filter((s) => s?.name && s.dataUrl);
       if (Array.isArray(mod.scripts)) {
         this.modScripts = mod.scripts.map((s) => ({
           when: s.when,
@@ -722,6 +774,52 @@ export class Engine {
     addSkinnedHumanoid(this.playerBody, skin);
     const kind = heldKind(this.player.selected?.id ?? 0);
     addHeld(this.playerBody, kind, getDef(this.player.selected?.id ?? 0)?.tint ?? 0x5adce6);
+    this.rebuildHand();
+  }
+
+  rebuildHand() {
+    if (this.hand) this.camera.remove(this.hand);
+    this.hand = buildViewArm(resolveSkin(useApp.getState().profile.skin));
+    this.camera.add(this.hand);
+    this.lastHeld = -1;
+  }
+
+  playerStuck(): boolean {
+    const p = this.player;
+    if (this.world.collides(p.x - 0.3, p.y + 0.05, p.z - 0.3, 0.6, 1.7, 0.6)) return true;
+    const ix = Math.floor(p.x);
+    const iy = Math.floor(p.y);
+    const iz = Math.floor(p.z);
+    const feet = this.world.getBlock(ix, iy, iz);
+    const head = this.world.getBlock(ix, iy + 1, iz);
+    if (isSolid(feet) || isSolid(head)) return true;
+    if (this.world.isDanger(feet) || this.world.isDanger(head)) return true;
+    if (p.y < 2) return true;
+    return false;
+  }
+
+  seatPlayer(fromSave: boolean) {
+    if (isArena(this.meta.arena)) {
+      const s = ARENA_SPAWN[this.meta.arena];
+      this.player.x = s.x;
+      this.player.y = s.y;
+      this.player.z = s.z;
+      this.worldTime = DAY_LEN * 0.48;
+      return;
+    }
+    const stuck = this.playerStuck();
+    if (!fromSave || stuck) {
+      const prefer = this.dim === "nether" ? 40 : this.dim === "end" ? 49 : 56;
+      const minY = this.dim === "nether" ? 8 : this.dim === "end" ? 20 : 42;
+      const safe = this.world.findSafeSpawn(this.player.x, this.player.z, prefer, minY);
+      this.player.x = safe.x;
+      this.player.y = safe.y;
+      this.player.z = safe.z;
+      this.player.vy = 0;
+      this.world.streamAround(this.player.x, this.player.z, this.settings.renderDistance, this.dim);
+      this.world.flushMeshes(this.settings.ao, 24);
+      if (!fromSave) this.meta.spawn = { x: safe.x, y: safe.y, z: safe.z };
+    }
   }
 
   applyDimVisuals() {
@@ -777,14 +875,48 @@ export class Engine {
       this.input.enabled = false;
     } else {
       this.input.enabled = true;
+      this.input.releaseAll();
       this.last = performance.now();
     }
   }
 
+  private simShouldFreeze(o: Overlay) {
+    if (o === "none" || o === "locked" || o === "studio" || o === "chat") return false;
+    const mp = useApp.getState().multiplayer;
+    if (mp && (o === "pause" || o === "settings" || o === "inventory" || o === "crafting" || o === "furnace" || o === "advancements")) {
+      return false;
+    }
+    return true;
+  }
+
   setOverlay(o: Overlay) {
     this.overlay = o;
-    this.setPaused(o !== "none" && o !== "locked" && o !== "studio");
+    const freeze = this.simShouldFreeze(o);
+    this.setPaused(freeze);
+    if (o === "chat" || o === "pause" || o === "settings" || o === "inventory" || o === "crafting" || o === "furnace") {
+      this.input.enabled = o !== "chat";
+      if (o === "chat") {
+        this.input.enabled = false;
+        this.input.releaseAll();
+      }
+    }
+    if (o === "none") {
+      this.input.enabled = true;
+      this.input.releaseAll();
+    }
     this.hooks.onOverlay(o);
+  }
+
+  closeChat() {
+    this.input.enabled = true;
+    this.input.releaseAll();
+    this.paused = this.simShouldFreeze("none") ? this.paused : false;
+    this.setOverlay("none");
+  }
+
+  onPlayerChat(text: string) {
+    this.runScripts("chat");
+    if (text) this.toastMsg(text.slice(0, 48));
   }
 
   private loop = (now: number) => {
@@ -811,13 +943,24 @@ export class Engine {
     this.acc += dt;
     const step = 1 / 60;
     const input = this.input.poll();
+    const overlayLock = this.overlay !== "none" && this.overlay !== "studio" && this.overlay !== "locked";
+    if (overlayLock) {
+      input.moveX = 0;
+      input.moveY = 0;
+      input.jump = false;
+      input.attack = false;
+      input.use = false;
+      input.sprint = false;
+      input.lookX = 0;
+      input.lookY = 0;
+    }
     if (input.moveX || input.moveY || input.lookX || input.lookY || input.jump || input.attack) {
       this.afk = 0;
       this.lastInput = now;
     } else {
       this.afk += dt;
     }
-    if (this.afk > 1200 && this.overlay === "none") {
+    if (this.afk > 1200 && this.overlay === "none" && !useApp.getState().multiplayer) {
       this.afk = 0;
       this.toastMsg("Away for 20 minutes — game paused. Worlds stay saved.");
       this.setOverlay("pause");
@@ -825,7 +968,8 @@ export class Engine {
     }
 
     if (input.justPause) {
-      this.setOverlay(this.overlay === "pause" ? "none" : "pause");
+      if (this.overlay === "chat") this.closeChat();
+      else this.setOverlay(this.overlay === "pause" ? "none" : "pause");
       return;
     }
     if (input.justInventory) {
@@ -870,6 +1014,8 @@ export class Engine {
     this.worldTime += this.studio.freeze ? 0 : dt;
     this.player.update(dt, input, this.world);
     this.tickBoats(dt, input);
+    this.tickCarts(dt, input);
+    this.tickMechanics(dt);
     if (this.meta.arena === "duel") {
       this.player.x = Math.max(-23.2, Math.min(23.2, this.player.x));
       this.player.z = Math.max(-23.2, Math.min(23.2, this.player.z));
@@ -915,8 +1061,16 @@ export class Engine {
             const f = this.player.forward();
             this.placeBoat(this.player.x + f.x * 2, this.player.y, this.player.z + f.z * 2, heldId);
           }
+        } else if (heldId === MINECART) {
+          if (hit) this.placeCart(hit.x + hit.nx + 0.5, hit.y + hit.ny + 0.2, hit.z + hit.nz + 0.5);
+          else {
+            const f = this.player.forward();
+            this.placeCart(this.player.x + f.x * 2, this.player.y, this.player.z + f.z * 2);
+          }
         } else if (this.tryMountBoat()) {
           this.toastMsg("Boarded. Jump to hop out. WASD to row.");
+        } else if (this.tryMountCart()) {
+          this.toastMsg("Minecart. Jump to hop out.");
         } else if (isPotionItem(heldId)) {
           this.drinkPotion(heldId);
         } else if (heldId === WIND_CHARGE) {
@@ -924,7 +1078,12 @@ export class Engine {
           this.player.onGround = false;
           if (this.player.mode !== "creative") this.player.takeSelected(1);
           this.audio.jump();
+        } else if (heldId === FIREWORK) {
+          this.boostElytra();
+        } else if (heldId === BOW || heldId === CROSSBOW) {
+          /* hold to draw, release to shoot */
         } else if (heldId === ENDER_PEARL) this.throwPearl(look);
+        else if (heldId === EYE_OF_ENDER) this.throwEye(look);
         else if (hit) {
           this.use(hit);
           this.runScripts("use");
@@ -952,6 +1111,16 @@ export class Engine {
     this.camPunch = Math.max(0, this.camPunch - dt * 3.2);
     this.hitFlash = Math.max(0, this.hitFlash - dt * 4);
 
+    if (!spec) {
+      const heldNow = this.player.selected?.id ?? 0;
+      if ((heldNow === BOW || heldNow === CROSSBOW) && input.use) {
+        this.bowCharge = Math.min(1, this.bowCharge + dt / (heldNow === CROSSBOW ? 0.5 : 0.92));
+      } else if (this.bowCharge > 0) {
+        if (this.bowCharge > 0.12) this.shootBow(look, this.bowCharge);
+        this.bowCharge = 0;
+      }
+    }
+
     if (this.meta.arena === "ctf") {
       if (Math.abs(this.player.x) < 1.8 && Math.abs(this.player.z - 18) < 1.8) {
         this.grant("ctf_cap");
@@ -966,12 +1135,29 @@ export class Engine {
     if ((this.meta.arena === "skywars" || this.meta.arena === "bedwars") && this.player.y < 16) {
       this.player.hurtBy(50, "void");
     }
+    if (this.meta.arena === "skywars" || this.meta.arena === "bedwars") {
+      for (const m of this.mobs) {
+        if (m.kind !== "duelist" || m.dead) continue;
+        if (m.y < 16) {
+          const b = ARENA_BOT[this.meta.arena];
+          m.x = b.x;
+          m.y = b.y;
+          m.z = b.z;
+          m.vx = 0;
+          m.vy = 0;
+          m.vz = 0;
+          m.hp = m.max;
+          this.toastMsg("Bot fell — reset to island.");
+        }
+      }
+    }
 
     if (input.justDrop) {
       this.player.takeSelected(1);
     }
 
     this.tickMobs(dt);
+    this.tickShots(dt);
     this.tickFluids(dt);
     this.tickGravity(dt);
     this.tickFire(dt);
@@ -1014,7 +1200,13 @@ export class Engine {
     }
     if (this.player.hurt > 0.35 && this.player.lastHurtAmt > 0.4) {
       this.trauma = Math.min(1, this.trauma + Math.min(0.45, this.player.lastHurtAmt * 0.12));
+      if (!this.labHurtLatch) {
+        this.labHurtLatch = true;
+        this.runScripts("hurt");
+      }
       this.player.lastHurtAmt = 0;
+    } else if (this.player.hurt <= 0) {
+      this.labHurtLatch = false;
     }
 
     const horiz = Math.hypot(this.player.vx, this.player.vz);
@@ -1066,28 +1258,132 @@ export class Engine {
 
   private use(hit: { x: number; y: number; z: number; nx: number; ny: number; nz: number }) {
     const id = this.world.getBlock(hit.x, hit.y, hit.z);
-    if (id === CRAFTING_TABLE) {
+    const kind = blockKind(id);
+    if (id === CRAFTING_TABLE || kind === "craft") {
       this.setOverlay("crafting");
       return;
     }
-    if (id === FURNACE) {
+    if (id === FURNACE || kind === "furnace") {
       this.setOverlay("furnace");
       return;
     }
-    if (id === COMMAND_BLOCK) {
+    if (id === COMMAND_BLOCK || kind === "command") {
       this.setOverlay("chat");
       this.toastMsg("Command block — type /give, /tp, /nether, /end…");
       return;
     }
+    if (kind === "chest") {
+      this.setOverlay("inventory");
+      this.toastMsg("Chest opened.");
+      return;
+    }
+    if (kind === "door" || kind === "trapdoor" || kind === "gate") {
+      const k = posKey(hit.x, hit.y, hit.z);
+      if (this.world.passable.has(k)) this.world.passable.delete(k);
+      else this.world.passable.add(k);
+      this.audio.place();
+      this.toastMsg(this.world.passable.has(k) ? "Opened." : "Closed.");
+      return;
+    }
+    if (kind === "lever") {
+      const k = posKey(hit.x, hit.y, hit.z);
+      if (this.world.toggled.has(k)) this.world.toggled.delete(k);
+      else this.world.toggled.add(k);
+      this.audio.place();
+      this.toastMsg(this.world.toggled.has(k) ? "Lever on." : "Lever off.");
+      this.tickMechanics(0.2);
+      return;
+    }
+    if (kind === "button") {
+      this.world.toggled.add(posKey(hit.x, hit.y, hit.z));
+      window.setTimeout(() => {
+        this.world.toggled.delete(posKey(hit.x, hit.y, hit.z));
+        this.tickMechanics(0.2);
+      }, 900);
+      this.audio.place();
+      this.toastMsg("Click.");
+      this.tickMechanics(0.2);
+      return;
+    }
+    if (kind === "piston") {
+      if (pushPiston(this.world, hit.x, hit.y, hit.z, hit)) this.toastMsg("Piston shoves.");
+      else this.toastMsg("Nothing to push.");
+      this.audio.place();
+      return;
+    }
+    if (kind === "tnt" || isTnt(id)) {
+      this.world.setBlock(hit.x, hit.y, hit.z, 0);
+      this.explode(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5, 3.4);
+      return;
+    }
+    if (kind === "bed") {
+      if (this.dim !== "overworld") {
+        this.explode(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5, 3.2);
+        this.toastMsg("Beds explode here.");
+        return;
+      }
+      this.meta.spawn = { x: hit.x + 0.5, y: hit.y + 1, z: hit.z + 0.5 };
+      this.toastMsg("Respawn point set.");
+      this.audio.place();
+      return;
+    }
+    if (kind === "note") {
+      this.audio.place();
+      this.toastMsg("Note block pings.");
+      return;
+    }
+    if (kind === "jukebox") {
+      this.audio.unlock();
+      this.toastMsg("The disc spins.");
+      return;
+    }
+    if (kind === "bell") {
+      this.audio.hurt();
+      this.toastMsg("The bell rings.");
+      return;
+    }
+    if (kind === "cake") {
+      this.player.hunger = Math.min(20, this.player.hunger + 2);
+      this.audio.eat();
+      this.toastMsg("Cake.");
+      return;
+    }
+    if (kind === "enchant") {
+      if ((this.player.xpLevel ?? 0) < 1 && this.player.mode !== "creative") {
+        this.toastMsg("Need XP levels to enchant.");
+        return;
+      }
+      this.player.xpLevel = Math.max(0, (this.player.xpLevel ?? 0) - 1);
+      this.toastMsg("Enchanted with a glow.");
+      this.audio.levelup();
+      return;
+    }
+    if (kind === "anvil") {
+      this.setOverlay("inventory");
+      this.toastMsg("Anvil — repair by combining stacks.");
+      return;
+    }
+    if (this.tryMountBoat()) return;
+    if (this.tryMountCart()) return;
     const held = this.player.selected;
     if (held?.id === EYE_OF_ENDER) {
       this.tryLightEndPortal(hit.x, hit.y, hit.z);
       return;
     }
     if (held?.id === FLINT_STEEL) {
+      if (isTnt(id)) {
+        this.world.setBlock(hit.x, hit.y, hit.z, 0);
+        this.explode(hit.x + 0.5, hit.y + 0.5, hit.z + 0.5, 3.4);
+        if (this.player.mode !== "creative") this.player.takeSelected(1);
+        return;
+      }
       this.world.setBlock(hit.x + hit.nx, hit.y + hit.ny, hit.z + hit.nz, FIRE);
       this.tryLightPortal(hit.x + hit.nx, hit.y + hit.ny, hit.z + hit.nz);
       this.audio.place();
+      return;
+    }
+    if (held?.id === MINECART) {
+      this.placeCart(hit.x + 0.5, hit.y + 1, hit.z + 0.5);
       return;
     }
     if (this.player.eat()) {
@@ -1133,6 +1429,7 @@ export class Engine {
       }
       this.world.setBlock(px, py, pz, placeId);
       this.audio.place();
+      this.runScripts("place");
       if (this.player.mode !== "creative") this.player.takeSelected(1);
       this.player.swing = 1;
     }
@@ -1254,6 +1551,8 @@ export class Engine {
     this.world.processBuilds(80, this.settings.ao);
     for (const b of this.boats) this.scene.remove(b.mesh);
     this.boats = [];
+    for (const c of this.carts) this.scene.remove(c.mesh);
+    this.carts = [];
     this.player.riding = false;
     const prefer = d === "nether" ? 40 : d === "end" ? 49 : 56;
     const minY = d === "nether" ? 8 : d === "end" ? 20 : 42;
@@ -1432,10 +1731,11 @@ export class Engine {
     this.playXpT += dt;
     if (this.playXpT < 8) return;
     this.playXpT = 0;
-    this.addXp(1);
-    this.playXpBatch++;
     const p = useApp.getState().profile;
     useApp.getState().setProfile({ playSeconds: (p.playSeconds ?? 0) + 8 });
+    if (this.xpBlocked()) return;
+    this.addXp(1);
+    this.playXpBatch++;
     if (this.playXpBatch % 6 === 0) this.toastMsg("+6 XP for time in world");
   }
 
@@ -1500,7 +1800,7 @@ export class Engine {
       } else if (op.op === "spawnpoint") {
         this.meta.spawn = { x: this.player.x, y: this.player.y, z: this.player.z };
       } else if (op.op === "particle") this.burst(this.player.x, this.player.y + 1, this.player.z, 0x5adce6);
-      else if (op.op === "sound") this.audio.craft();
+      else if (op.op === "sound") this.audio.playNamed(op.text || "", this.customSounds);
       else if (op.op === "gamerule" && op.text) {
         if (op.text.includes("keepInventory")) this.modRules.keepInventory = true;
         if (op.text.includes("pvp")) this.modRules.pvp = true;
@@ -1522,13 +1822,14 @@ export class Engine {
   applyStudio() {
     const on = !this.meta.arena && !useApp.getState().multiplayer;
     if (!on) {
-      this.studio = { fly: false, god: false, fullbright: false, speed: false, freeze: false };
+      this.studio = { fly: false, god: false, fullbright: false, speed: false, freeze: false, hitboxes: false };
       return;
     }
     if (this.studio.fly && this.player.mode !== "spectator") this.player.flying = true;
     this.player.invincible = this.studio.god || this.player.mode === "creative" || this.player.mode === "spectator";
     if (this.studio.speed) this.player.speedT = Math.max(this.player.speedT, 2);
     if (this.studio.fullbright) this.player.nightT = Math.max(this.player.nightT, 2);
+    this.syncHitboxes();
   }
 
   private tickFire(dt: number) {
@@ -1664,6 +1965,106 @@ export class Engine {
       b.mesh.rotation.y = b.yaw;
       b.mesh.rotation.z = Math.sin(b.x * 0.4 + this.worldTime * 2) * (inWater ? 0.04 : 0);
     }
+  }
+
+  placeCart(x: number, y: number, z: number) {
+    const mesh = makeCartMesh();
+    const gx = Math.floor(x);
+    const gz = Math.floor(z);
+    let fy = this.world.highestSolid(x, z) + 0.2;
+    for (let yy = Math.floor(y) + 2; yy >= Math.floor(y) - 2; yy--) {
+      if (isRail(this.world.getBlock(gx, yy, gz))) {
+        fy = yy + 0.2;
+        break;
+      }
+    }
+    mesh.position.set(x, fy, z);
+    this.scene.add(mesh);
+    this.carts.push({ x, y: fy, z, yaw: this.player.yaw, vx: 0, vz: 0, mesh, occupied: false });
+    if (this.player.mode !== "creative") this.player.takeSelected(1);
+    this.audio.place();
+    this.toastMsg("Minecart placed. Use it on rails.");
+  }
+
+  tryMountCart(): boolean {
+    if (this.player.riding) return false;
+    for (const c of this.carts) {
+      if (Math.hypot(this.player.x - c.x, this.player.z - c.z) < 1.6 && Math.abs(this.player.y - c.y) < 2) {
+        this.player.riding = true;
+        c.occupied = true;
+        this.player.x = c.x;
+        this.player.y = c.y + 0.45;
+        this.player.z = c.z;
+        this.player.vx = 0;
+        this.player.vz = 0;
+        this.player.vy = 0;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private tickCarts(dt: number, input: ReturnType<Input["poll"]>) {
+    for (const c of this.carts) {
+      if (c.occupied && !this.player.riding) c.occupied = false;
+      const bx = Math.floor(c.x);
+      const bz = Math.floor(c.z);
+      const by = Math.floor(c.y);
+      const here = this.world.getBlock(bx, by, bz);
+      const below = this.world.getBlock(bx, by - 1, bz);
+      const onRail = isRail(here) || isRail(below);
+      const powered = (BLOCKS[here]?.key ?? "").includes("powered") || (BLOCKS[below]?.key ?? "").includes("powered");
+      if (c.occupied && this.player.riding) {
+        const fx = -Math.sin(this.player.yaw);
+        const fz = -Math.cos(this.player.yaw);
+        const acc = onRail ? (powered ? 22 : 14) : 2;
+        const max = onRail ? (powered ? 16 : 11) : 1.2;
+        c.vx += fx * input.moveY * acc * dt;
+        c.vz += fz * input.moveY * acc * dt;
+        const sp = Math.hypot(c.vx, c.vz);
+        if (sp > max) {
+          c.vx *= max / sp;
+          c.vz *= max / sp;
+        }
+        if (onRail && Math.abs(fx) >= Math.abs(fz)) c.vz *= 0.2;
+        else if (onRail) c.vx *= 0.2;
+      }
+      c.vx *= Math.max(0, 1 - (onRail ? 0.35 : 4) * dt);
+      c.vz *= Math.max(0, 1 - (onRail ? 0.35 : 4) * dt);
+      c.x += c.vx * dt;
+      c.z += c.vz * dt;
+      const ground = this.world.highestSolid(c.x, c.z);
+      c.y = ground + (onRail ? 0.22 : 0.18);
+      if (c.occupied && this.player.riding) {
+        this.player.x = c.x;
+        this.player.y = c.y + 0.5;
+        this.player.z = c.z;
+        this.player.vx = c.vx;
+        this.player.vz = c.vz;
+        this.player.vy = 0;
+        this.player.onGround = true;
+      }
+      c.mesh.position.set(c.x, c.y, c.z);
+      c.mesh.rotation.y = Math.atan2(-c.vx, -c.vz);
+    }
+  }
+
+  private tickMechanics(_dt: number) {
+    const px = Math.floor(this.player.x);
+    const py = Math.floor(this.player.y);
+    const pz = Math.floor(this.player.z);
+    const extra = new Set<string>(this.platePower);
+    const standing = posKey(px, py - 1, pz);
+    const feetId = this.world.getBlock(px, py, pz);
+    const belowId = this.world.getBlock(px, py - 1, pz);
+    if (blockKind(feetId) === "plate" || blockKind(belowId) === "plate") {
+      extra.add(standing);
+      extra.add(posKey(px, py, pz));
+      extra.add(posKey(px, py - 1, pz));
+    }
+    const sources = collectPowerSources(this.world, px, py, pz, extra);
+    const powered = propagateDust(this.world, sources, px, py, pz);
+    applyLamps(this.world, powered, px, py, pz);
   }
 
   drinkPotion(id: number) {
@@ -1821,20 +2222,134 @@ export class Engine {
     const s = this.player.selected;
     if (!s || s.id !== ENDER_PEARL) return;
     if (this.player.mode !== "creative") this.player.takeSelected(1);
-    let x = this.player.x;
-    let y = this.player.eyeY();
-    let z = this.player.z;
-    for (let i = 0; i < 28; i++) {
-      x += dir.x;
-      y += dir.y;
-      z += dir.z;
-      if (this.world.getBlock(Math.floor(x), Math.floor(y), Math.floor(z))) {
-        x -= dir.x;
-        y -= dir.y;
-        z -= dir.z;
-        break;
+    this.spawnShot("pearl", dir, 22, 0);
+    this.audio.pearl();
+  }
+
+  throwEye(dir: { x: number; y: number; z: number }) {
+    const s = this.player.selected;
+    if (!s || s.id !== EYE_OF_ENDER) return;
+    if (this.player.mode !== "creative") this.player.takeSelected(1);
+    const sh = strongholdChunk(this.meta.seed);
+    const tx = sh.cx * CHUNK_W + 8;
+    const tz = sh.cz * CHUNK_W + 8;
+    const dx = tx - this.player.x;
+    const dz = tz - this.player.z;
+    const len = Math.hypot(dx, dz) || 1;
+    this.spawnShot("eye", { x: dx / len, y: 0.35, z: dz / len }, 10, 0);
+    this.toastMsg("The eye floats toward the stronghold.");
+    this.audio.pearl();
+    void dir;
+  }
+
+  boostElytra() {
+    if (!this.player.gliding) {
+      if (this.player.armor[1]?.id === 10106 && !this.player.onGround) {
+        this.player.gliding = true;
+      } else {
+        this.toastMsg("Equip elytra and jump, then boost.");
+        return;
       }
     }
+    const look = this.player.lookDir();
+    this.player.vx += look.x * 16;
+    this.player.vy += Math.max(7.5, look.y * 14);
+    this.player.vz += look.z * 16;
+    this.player.onGround = false;
+    if (this.player.mode !== "creative") this.player.takeSelected(1);
+    this.burst(this.player.x, this.player.y, this.player.z, 0xc43030);
+    this.audio.explode();
+    this.grant("sky_is_limit");
+  }
+
+  shootBow(dir: { x: number; y: number; z: number }, charge: number) {
+    const held = this.player.selected?.id ?? 0;
+    const creative = this.player.mode === "creative";
+    if (!creative && !this.player.hasItem(ARROW)) {
+      this.toastMsg("No arrows.");
+      return;
+    }
+    if (!creative) this.player.takeItem(ARROW, 1);
+    const power = 18 + charge * 28;
+    const dmg = 2 + charge * (held === CROSSBOW ? 8 : 7);
+    this.spawnShot("arrow", dir, power, dmg);
+    this.audio.bow();
+    this.grant("take_aim");
+    if (held === CROSSBOW) this.grant("ol_betsy");
+  }
+
+  spawnShot(kind: "arrow" | "pearl" | "eye", dir: { x: number; y: number; z: number }, speed: number, dmg: number) {
+    const geo =
+      kind === "arrow"
+        ? new THREE.CylinderGeometry(0.03, 0.03, 0.55, 5)
+        : new THREE.SphereGeometry(kind === "eye" ? 0.16 : 0.14, 8, 8);
+    const mat = new THREE.MeshLambertMaterial({
+      color: kind === "arrow" ? 0xc8c0b0 : kind === "eye" ? 0x5adce6 : 0x1a6a5a,
+      emissive: kind === "arrow" ? 0x000000 : kind === "eye" ? 0x3aa8b0 : 0x0a3a32,
+      emissiveIntensity: kind === "arrow" ? 0 : 0.5,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    if (kind === "arrow") geo.rotateX(Math.PI / 2);
+    const x = this.player.x + dir.x * 0.6;
+    const y = this.player.eyeY();
+    const z = this.player.z + dir.z * 0.6;
+    mesh.position.set(x, y, z);
+    this.scene.add(mesh);
+    this.shots.push({
+      kind,
+      x,
+      y,
+      z,
+      vx: dir.x * speed,
+      vy: dir.y * speed + (kind === "pearl" ? 1.6 : 0.4),
+      vz: dir.z * speed,
+      life: kind === "eye" ? 4 : 3.2,
+      dmg,
+      mesh,
+    });
+  }
+
+  private tickShots(dt: number) {
+    for (const s of this.shots) {
+      s.life -= dt;
+      if (s.kind !== "eye") s.vy -= 18 * dt;
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+      s.z += s.vz * dt;
+      s.mesh.position.set(s.x, s.y, s.z);
+      if (s.kind === "arrow") s.mesh.lookAt(s.x + s.vx, s.y + s.vy, s.z + s.vz);
+      const hitBlock = this.world.getBlock(Math.floor(s.x), Math.floor(s.y), Math.floor(s.z));
+      if (hitBlock && BLOCKS[hitBlock]?.solid) {
+        s.life = 0;
+        if (s.kind === "pearl") this.landPearl(s.x, s.y + 0.4, s.z);
+        continue;
+      }
+      if (s.kind === "arrow") {
+        const mob = hitMob(this.mobs, s.x, s.y, s.z, s.dmg, { x: s.vx * 0.08, y: 0.35, z: s.vz * 0.08 });
+        if (mob) {
+          s.life = 0;
+          this.audio.hit();
+          this.grant("sniper_duel");
+          this.burst(mob.x, mob.y + 1, mob.z, 0xc45c4a);
+          if (mob.hp <= 0) this.killMob(mob);
+        }
+      }
+    }
+    const keep = [];
+    for (const s of this.shots) {
+      if (s.life > 0 && s.y > 0) {
+        keep.push(s);
+        continue;
+      }
+      if (s.kind === "pearl" && s.y > 1) this.landPearl(s.x, Math.max(2, s.y), s.z);
+      this.scene.remove(s.mesh);
+      s.mesh.geometry.dispose();
+      if (s.mesh.material instanceof THREE.Material) s.mesh.material.dispose();
+    }
+    this.shots = keep;
+  }
+
+  private landPearl(x: number, y: number, z: number) {
     this.player.x = x;
     this.player.y = Math.max(1, y);
     this.player.z = z;
@@ -1843,7 +2358,51 @@ export class Engine {
     this.audio.pearl();
   }
 
+  private syncHitboxes() {
+    if (!this.hitboxGeo) this.hitboxGeo = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1));
+    const ents: { x: number; y: number; z: number; w: number; h: number; d: number; color: number }[] = [];
+    if (this.studio.hitboxes) {
+      ents.push({ x: this.player.x, y: this.player.y, z: this.player.z, w: 0.6, h: 1.8, d: 0.6, color: 0x5adce6 });
+      for (const m of this.mobs) {
+        if (m.dead) continue;
+        const big = m.kind === "dragon" || m.kind === "wither_storm" || m.kind === "custom_boss";
+        ents.push({
+          x: m.x,
+          y: m.y,
+          z: m.z,
+          w: big ? 2.4 : 0.7,
+          h: big ? 3.2 : 1.8,
+          d: big ? 2.4 : 0.7,
+          color: m.hostile ? 0xc45c4a : 0x7cc84a,
+        });
+      }
+    }
+    while (this.hitboxPool.length < ents.length) {
+      const line = new THREE.LineSegments(
+        this.hitboxGeo,
+        new THREE.LineBasicMaterial({ color: 0xffffff, depthTest: false, transparent: true, opacity: 0.9 }),
+      );
+      line.renderOrder = 20;
+      this.scene.add(line);
+      this.hitboxPool.push(line);
+    }
+    for (let i = 0; i < this.hitboxPool.length; i++) {
+      const line = this.hitboxPool[i]!;
+      const e = ents[i];
+      if (!e) {
+        line.visible = false;
+        continue;
+      }
+      line.visible = true;
+      line.position.set(e.x, e.y + e.h / 2, e.z);
+      line.scale.set(e.w, e.h, e.d);
+      const mat = line.material as THREE.LineBasicMaterial;
+      mat.color.setHex(e.color);
+    }
+  }
+
   addXp(n: number) {
+    if (this.xpBlocked()) return;
     this.player.xp += n;
     const need = 7 + this.player.xpLevel * 2;
     while (this.player.xp >= need) {
@@ -1852,6 +2411,13 @@ export class Engine {
     }
     const p = useApp.getState().profile;
     useApp.getState().setProfile({ xp: p.xp + n });
+  }
+
+  xpBlocked() {
+    if (this.meta.xpFarm) return true;
+    const p = useApp.getState().profile;
+    if (this.meta.labGame && this.meta.author && this.meta.author === p.username) return true;
+    return false;
   }
 
   grant(id: string) {
@@ -1990,9 +2556,9 @@ export class Engine {
       this.skyUniforms.topColor.value.copy(top);
       this.skyUniforms.bottomColor.value.copy(bot);
       this.fog.color.copy(bot);
-      this.sun.intensity = 0.08 + dayAmt * 1.15;
+      this.sun.intensity = 0.22 + dayAmt * 1.05;
       this.sun.color.setRGB(1, 0.94 - dusk * 0.25, 0.78 - dusk * 0.3);
-      this.hemi.intensity = 0.16 + dayAmt * 0.6;
+      this.hemi.intensity = 0.42 + dayAmt * 0.5;
       this.hemi.color.setRGB(0.55 + dayAmt * 0.2, 0.62 + dayAmt * 0.18, 0.85);
       this.stars.visible = this.settings.stars && nightAmt > 0.15;
       (this.stars.material as THREE.PointsMaterial).opacity = Math.min(1, nightAmt * 1.4);
@@ -2053,7 +2619,7 @@ export class Engine {
     this.playerBody.scale.set(1 / this.player.squash, this.player.squash, 1 / this.player.squash);
     const spd = Math.hypot(this.player.vx, this.player.vz);
     swingLimbs(this.playerBody, this.time, 9, Math.min(0.7, spd * 0.12));
-    this.hand.visible = mode === "first" && this.settings.heldItem && this.overlay === "none";
+    this.hand.visible = mode === "first" && this.settings.heldItem && this.overlay !== "inventory" && this.overlay !== "crafting" && this.overlay !== "furnace" && this.overlay !== "pause" && this.overlay !== "settings";
     const hid = this.player.selected?.id ?? 0;
     if (hid !== this.lastHeld) {
       this.lastHeld = hid;
@@ -2173,11 +2739,15 @@ export class Engine {
       dim: this.dim,
       mode: this.player.mode,
       targeting: this.targeting,
-      boss: this.storm && !this.storm.dead
-        ? { name: "Wither Storm", hp: this.storm.hp, max: this.storm.max }
-        : this.dragon && !this.dragon.dead
-          ? { name: "Void Wyrm", hp: this.dragon.hp, max: this.dragon.max }
-          : undefined,
+      boss: (() => {
+        const custom = this.mobs.find((m) => m.kind === "custom_boss" && !m.dead);
+        if (this.storm && !this.storm.dead) return { name: "Wither Storm", hp: this.storm.hp, max: this.storm.max };
+        if (this.dragon && !this.dragon.dead) return { name: "Void Wyrm", hp: this.dragon.hp, max: this.dragon.max };
+        if (custom) return { name: custom.label || "Custom Boss", hp: custom.hp, max: custom.max };
+        const wither = this.mobs.find((m) => m.kind === "wither" && !m.dead);
+        if (wither) return { name: wither.label || "Wither", hp: wither.hp, max: wither.max };
+        return undefined;
+      })(),
       wraith: !!this.wraith && !this.wraith.dead,
       chat: this.chat.slice(-6),
       toast: this.toastT > 0 ? this.toast : "",
@@ -2194,6 +2764,7 @@ export class Engine {
       dualLevel: this.dualLevel,
       hitFlash: this.hitFlash,
       blocking: this.player.blocking,
+      bowCharge: this.bowCharge,
     };
     this.hooks.onHud(snap);
   }
@@ -2230,6 +2801,7 @@ export class Engine {
     if (cloudsChanged) this.buildClouds();
     this.clouds.visible = s.clouds && this.dim === "overworld";
     this.hand.visible = s.heldItem && s.cameraMode === "first";
+    if (this.lamp) this.lamp.visible = s.graphics !== "fast";
   }
 
   async persist() {
