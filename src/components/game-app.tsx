@@ -3,15 +3,21 @@ import { Box, ChevronLeft, Heart, Pause, Users } from "lucide-react";
 import { BLOCKS, BLOCK_COUNT } from "@/game/blocks";
 import { consumeGrid, matchRecipe, mergeInto, trySmelt } from "@/game/crafting";
 import { Engine } from "@/game/engine";
-import { displayName, getDef } from "@/game/items";
-import { loadChunks, loadPlayer, newWorldMeta } from "@/game/save";
-import { loadCustomSkins, saveCustomSkins, SKIN_PRESETS, skinFromJSON, skinToJSON, type SkinData } from "@/game/skins";
+import { displayName, getDef, ITEMS } from "@/game/items";
+import { loadChunks, loadPlayer, newWorldMeta, registerAccount, saveSession } from "@/game/save";
+import { resolveSkin } from "@/game/skins";
 import type { ArenaId, GameMode, Slot, WorldMeta } from "@/game/types";
+import { compileGame, loadGames } from "@/game/scratch";
 import { ARENA_LIST, WORKSHOP_TEMPLATE } from "@/game/arenas";
 import { ADVANCEMENTS } from "@/game/advancements";
 import { useApp, type Overlay } from "@/store/app-store";
 import { ItemIcon } from "./item-icon";
 import { SettingsPanel } from "./settings-panel";
+import { SkinPreview, SkinStudio } from "./skin-studio";
+import { Marketplace } from "./marketplace";
+import { GameLab } from "./game-lab";
+import { TitlePano } from "./title-pano";
+import { useP2PRoom } from "@/lib/multiplayer";
 
 let engineRef: Engine | null = null;
 export function getEngine() {
@@ -42,6 +48,11 @@ function McBtn({
 
 export function GameApp() {
   const phase = useApp((s) => s.phase);
+  const scheme = useApp((s) => s.settings.controlScheme);
+  useEffect(() => {
+    document.body.classList.toggle("moc-keys", scheme === "keys");
+    return () => document.body.classList.remove("moc-keys");
+  }, [scheme]);
   return (
     <div className="relative h-dvh w-full overflow-hidden bg-bg text-fg">
       {phase === "playing" || phase === "loading" ? <PlayView /> : <MenuShell />}
@@ -54,46 +65,22 @@ function MenuShell() {
   const overlay = useApp((s) => s.overlay);
   return (
     <div className="relative flex h-full flex-col">
-      <Panorama />
+      <TitlePano />
+      <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-b from-black/25 via-transparent to-black/55" />
       <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-none">
+        {phase === "login" && <LoginScreen />}
         {(phase === "title" || phase === "menu") && <TitleScreen />}
         {phase === "worlds" && <WorldSelect />}
         {phase === "create" && <CreateWorld />}
         {phase === "lobby" && <Lobby />}
         {phase === "skins" && <SkinStudio />}
         {phase === "minigames" && <Minigames />}
-        {phase === "workshop" && <Workshop />}
+        {phase === "friends" && <FriendsScreen />}
+        {phase === "market" && <Marketplace />}
+        {phase === "lab" && <GameLab />}
+        {phase === "playhub" && <PlayHub />}
       </div>
       {overlay === "settings" && <SettingsPanel fromPause={false} />}
-    </div>
-  );
-}
-
-const PANO_BIOMES = ["plains", "forest", "desert", "snow", "ocean", "mountains", "cherry", "swamp", "nether", "end"] as const;
-
-function Panorama() {
-  const strip = [...PANO_BIOMES, ...PANO_BIOMES];
-  return (
-    <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden>
-      <div className="mc-pano-strip">
-        {strip.map((id, i) => (
-          <div key={`${id}-${i}`} className={`mc-pano-panel mc-pano-${id}`}>
-            <div className="mc-pano-sun" />
-            <div className="mc-pano-moon" />
-            <div className="mc-hill mc-hill-a" />
-            <div className="mc-hill mc-hill-b" />
-            <span className="mc-trunk tr1" />
-            <span className="mc-tree t1" />
-            <span className="mc-tree t2" />
-            <span className="mc-tree t3" />
-            <span className="mc-cactus c1" />
-            <span className="mc-cactus c2" />
-            <div className="mc-pano-water" />
-            <div className="mc-pano-ground" />
-          </div>
-        ))}
-      </div>
-      <div className="absolute inset-0 bg-gradient-to-b from-black/20 via-transparent to-black/45" />
     </div>
   );
 }
@@ -104,11 +91,15 @@ const SPLASH = [
   "The Pale One watches.",
   "Craft a pickaxe.",
   "Bring a shield at night.",
-  "3,200 blocks to place.",
+  "30,000 blocks to place.",
   "The Void Wyrm waits.",
   "Also try the Nether.",
   "Bed Wars at the lobby.",
   "Hold jump to bunny hop.",
+  "Paint every side.",
+  "Boats float. Jump the shore.",
+  "As seen on a dirt block.",
+  "Not Mojang. Still cubic.",
 ];
 
 function bootArena(kind: ArenaId) {
@@ -126,56 +117,248 @@ function bootArena(kind: ArenaId) {
 function TitleScreen() {
   const setPhase = useApp((s) => s.setPhase);
   const profile = useApp((s) => s.profile);
-  const setProfile = useApp((s) => s.setProfile);
-  const [name, setName] = useState(profile.username);
   const splash = SPLASH[Math.floor(Date.now() / 8000) % SPLASH.length]!;
   return (
-    <div className="relative flex h-full flex-col items-center px-4 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
-      <div className="relative mt-[7vh] mb-1 select-none">
-        <h1 className="pixel-title text-center text-[3.2rem] leading-[0.82] text-[#fcfc54] drop-shadow-[4px_4px_0_#3f3f00] sm:text-7xl">
+    <div className="relative flex h-full flex-col px-4 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+      <div className="relative mx-auto mt-[6vh] mb-4 select-none">
+        <div className="mc-logo-cubes" aria-hidden>
+          <span className="mc-logo-cube" />
+          <span className="mc-logo-cube mc-logo-cube-b" />
+        </div>
+        <h1 className="pixel-title mc-logo-3d text-center text-[3.6rem] leading-[0.76] sm:text-8xl">
           MINE
           <span className="block text-[#3f3]">OR CRAFT</span>
         </h1>
-        <p className="mc-splash absolute -right-1 -bottom-2 max-w-[12rem] text-right text-sm font-bold sm:right-[-5rem] sm:bottom-1 sm:text-lg">
+        <p className="mc-splash absolute -right-2 -bottom-4 max-w-[13rem] text-right text-base font-bold sm:right-[-6rem] sm:bottom-0 sm:text-xl">
           {splash}
         </p>
       </div>
-      <div className="mc-menu-stack mt-auto mb-auto w-full max-w-[420px] space-y-2 p-3 sm:mt-12">
-        <McBtn primary onClick={() => setPhase("worlds")}>
-          Singleplayer
-        </McBtn>
-        <McBtn onClick={() => setPhase("lobby")}>Multiplayer</McBtn>
-        <McBtn className="mc-btn-dual" onClick={() => bootArena("duel")}>
-          Dual — PvP Arena
-        </McBtn>
-        <McBtn className="mc-btn-mini" onClick={() => setPhase("minigames")}>
-          Minigames
-        </McBtn>
-        <div className="grid grid-cols-2 gap-2">
-          <McBtn onClick={() => setPhase("skins")}>Skin Studio</McBtn>
-          <McBtn onClick={() => useApp.getState().setOverlay("settings")}>Options…</McBtn>
+      <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col items-stretch gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="mc-menu-stack w-full max-w-[340px] space-y-2 p-3 sm:p-4">
+          <McBtn primary onClick={() => setPhase("playhub")}>
+            Play
+          </McBtn>
+          <McBtn onClick={() => useApp.getState().setOverlay("settings")}>Settings</McBtn>
+          <McBtn className="mc-btn-dual" onClick={() => setPhase("market")}>
+            Marketplace
+          </McBtn>
+          <McBtn onClick={() => setPhase("skins")}>Dressing Room</McBtn>
+          <McBtn onClick={() => setPhase("lab")}>Game Lab</McBtn>
         </div>
-        <McBtn
-          className="mc-btn-discord"
-          onClick={() => window.open("https://discord.gg/mineorcraft", "_blank", "noopener,noreferrer")}
-        >
-          Discord
-        </McBtn>
-        <label className="mt-2 block text-[11px] tracking-wide text-muted">Username</label>
-        <input
-          value={name}
-          onChange={(e) => setName(e.target.value.slice(0, 16))}
-          onBlur={() => setProfile({ username: name || "Player" })}
-          className="min-h-11 w-full border-2 border-black bg-[#00000088] px-3 text-fg outline-none"
-        />
+        <button type="button" className="mx-auto flex flex-col items-center gap-2 sm:mx-0" onClick={() => setPhase("skins")}>
+          <SkinPreview skin={resolveSkin(profile.skin)} size={140} />
+          <span className="text-center">
+            <span className="block text-sm">{profile.username}</span>
+            <span className="text-[11px] text-muted">
+              {profile.xp} XP · {profile.stars ?? 0}/100 ★ · {profile.diamonds ?? 0} ◆
+            </span>
+          </span>
+        </button>
       </div>
-      <div className="mt-2 flex w-full max-w-3xl items-end justify-between px-1 text-[11px] text-muted">
-        <span>Mine or Craft 1.21.8</span>
-        <span className="text-right">
-          {profile.xp} XP · like Minecoins
-          <br />
-          Copyright Mojang AB? No. Independent.
-        </span>
+      <div className="mt-3 flex w-full items-end justify-between px-1">
+        <span className="text-[11px] text-muted">v1.21.8</span>
+        <button
+          type="button"
+          className="text-[11px] text-muted"
+          onClick={() => {
+            saveSession(null);
+            setPhase("login");
+          }}
+        >
+          Sign out
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PlayHub() {
+  const setPhase = useApp((s) => s.setPhase);
+  const worlds = useApp((s) => s.worlds);
+  const last = worlds[0];
+  const saves = loadGames();
+  const folders = [...new Set(saves.map((g) => g.folder || "Saves"))];
+  return (
+    <div className="mx-auto flex h-full w-full max-w-lg flex-col px-5 py-6">
+      <button type="button" onClick={() => setPhase("title")} className="mb-3 flex items-center gap-1 text-sm text-muted">
+        <ChevronLeft className="size-4" /> Back
+      </button>
+      <h2 className="pixel-title mb-4 text-3xl">Play</h2>
+      <div className="space-y-2">
+        {last && (
+          <McBtn
+            primary
+            onClick={() => {
+              useApp.getState().setActive(last);
+              void bootWorld(last);
+            }}
+          >
+            Continue — {last.name}
+          </McBtn>
+        )}
+        <McBtn primary={!last} onClick={() => setPhase("worlds")}>
+          Local worlds
+        </McBtn>
+        <McBtn onClick={() => setPhase("lobby")}>Online / Realms</McBtn>
+        <McBtn onClick={() => setPhase("minigames")}>Mini Games</McBtn>
+        <McBtn onClick={() => setPhase("friends")}>Friends</McBtn>
+      </div>
+      <h3 className="mt-5 mb-2 text-sm font-medium">Game Lab saves</h3>
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
+        {saves.length === 0 && <p className="text-sm text-muted">No saved packs. Open Game Lab from the title to make one.</p>}
+        {folders.map((f) => (
+          <div key={f} className="mc-panel p-3">
+            <p className="mb-2 text-xs tracking-wide text-muted">{f}</p>
+            {saves
+              .filter((g) => (g.folder || "Saves") === f)
+              .map((g) => (
+                <button
+                  key={g.id}
+                  type="button"
+                  className="mc-btn mb-1 min-h-11 w-full text-left text-sm"
+                  onClick={() => {
+                    const meta = newWorldMeta(g.name, Date.now() % 1e9, "survival", true);
+                    meta.modJson = compileGame(g);
+                    meta.spawnBiome = g.spawnBiome;
+                    useApp.getState().upsertWorld(meta);
+                    useApp.getState().setNet({ multiplayer: false, isHost: true });
+                    void bootWorld(meta);
+                  }}
+                >
+                  {g.name}
+                </button>
+              ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function LoginScreen() {
+  const setPhase = useApp((s) => s.setPhase);
+  const setProfile = useApp((s) => s.setProfile);
+  const [name, setName] = useState("");
+  const [pass, setPass] = useState("");
+  const [msg, setMsg] = useState("");
+  const enter = (guest: boolean, signup: boolean) => {
+    const n = (name.trim() || (guest ? "Player" : "")).slice(0, 16);
+    if (!n) {
+      setMsg("Pick a username.");
+      return;
+    }
+    if (!guest && !pass) {
+      setMsg("Password required to sign in or sign up.");
+      return;
+    }
+    const res = registerAccount(n, guest ? "" : pass);
+    if (!res.ok) {
+      setMsg(res.msg);
+      return;
+    }
+    setProfile({ ...res.profile, guest });
+    saveSession(n);
+    setPhase("title");
+    void signup;
+  };
+  return (
+    <div className="relative flex h-full flex-col items-center px-4 pt-[max(2rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
+      <h1 className="pixel-title mc-logo-3d mt-[8vh] text-center text-[2.8rem] leading-[0.85] sm:text-6xl">
+        MINE
+        <span className="block text-[#3f3]">OR CRAFT</span>
+      </h1>
+      <div className="mt-8 flex w-full max-w-[480px] flex-col items-center gap-4 sm:flex-row sm:items-stretch">
+        <div className="flex flex-col items-center justify-center px-2">
+          <SkinPreview skin={resolveSkin("steve")} size={168} />
+          <p className="mt-2 text-[11px] tracking-wide text-muted">Player skin</p>
+        </div>
+        <div className="min-w-0 flex-1 space-y-2">
+          <p className="text-center text-sm text-muted">Sign in, create an account, or play as guest. This device remembers you.</p>
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value.slice(0, 16))}
+            placeholder="Username"
+            className="min-h-11 w-full border-2 border-black bg-[#00000088] px-3 text-fg outline-none"
+          />
+          <input
+            type="password"
+            value={pass}
+            onChange={(e) => setPass(e.target.value.slice(0, 32))}
+            placeholder="Password"
+            className="min-h-11 w-full border-2 border-black bg-[#00000088] px-3 text-fg outline-none"
+          />
+          {msg && <p className="text-sm text-danger">{msg}</p>}
+          <McBtn primary onClick={() => enter(false, false)}>
+            Sign in
+          </McBtn>
+          <McBtn onClick={() => enter(false, true)}>Sign up</McBtn>
+          <McBtn onClick={() => enter(true, false)}>Play as guest</McBtn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FriendsScreen() {
+  const setPhase = useApp((s) => s.setPhase);
+  const profile = useApp((s) => s.profile);
+  const setProfile = useApp((s) => s.setProfile);
+  const [fname, setFname] = useState("");
+  const [code, setCode] = useState("");
+  const friends = profile.friends ?? [];
+  const add = () => {
+    const n = fname.trim().slice(0, 16);
+    const c = code.trim().slice(0, 24);
+    if (!n || !c) return;
+    if (friends.some((f) => f.code === c || f.name === n)) return;
+    setProfile({ friends: [...friends, { name: n, code: c }] });
+    setFname("");
+    setCode("");
+  };
+  return (
+    <div className="mx-auto flex h-full w-full max-w-lg flex-col px-5 py-6">
+      <button type="button" onClick={() => setPhase("title")} className="mb-3 flex items-center gap-1 text-sm text-muted">
+        <ChevronLeft className="size-4" /> Back
+      </button>
+      <h2 className="pixel-title mb-1 text-3xl">Friends</h2>
+      <p className="mb-4 text-sm text-muted">Save a name and join code for Online.</p>
+      <input
+        value={fname}
+        onChange={(e) => setFname(e.target.value.slice(0, 16))}
+        placeholder="Friend name"
+        className="mb-2 min-h-11 border-2 border-black bg-elevated px-3"
+      />
+      <div className="mb-4 flex gap-2">
+        <input
+          value={code}
+          onChange={(e) => setCode(e.target.value.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 24))}
+          className="min-h-11 flex-1 border-2 border-black bg-elevated px-3"
+          placeholder="join-code"
+        />
+        <button type="button" className="mc-btn mc-btn-primary min-h-11 px-4" onClick={add}>
+          Add
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
+        {friends.length === 0 && <p className="text-sm text-muted">No friends yet.</p>}
+        {friends.map((f) => (
+          <div key={f.code} className="mc-panel flex items-center justify-between gap-2 px-3 py-2">
+            <span>
+              <span className="block text-sm">{f.name}</span>
+              <span className="text-xs text-muted">{f.code}</span>
+            </span>
+            <button
+              type="button"
+              className="mc-btn min-h-11 px-3 text-sm"
+              onClick={() => {
+                useApp.getState().setJoinCode(f.code);
+                setPhase("lobby");
+              }}
+            >
+              Join
+            </button>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -275,8 +458,8 @@ function CreateWorld() {
         className="mb-3 min-h-11 border-2 border-black bg-elevated px-3"
       />
       <p className="mb-2 text-xs text-muted">Game mode</p>
-      <div className="mb-4 grid grid-cols-3 gap-2">
-        {(["survival", "creative", "hardcore"] as GameMode[]).map((m) => (
+      <div className="mb-4 grid grid-cols-2 gap-2 sm:grid-cols-3">
+        {(["survival", "creative", "hardcore", "adventure", "spectator"] as GameMode[]).map((m) => (
           <button
             key={m}
             type="button"
@@ -322,6 +505,7 @@ async function bootWorld(meta: WorldMeta, mp = false) {
   store.setPhase("loading");
   store.setOverlay("none");
   store.setNet({ multiplayer: mp, isHost: !mp || store.isHost });
+  if (mp && meta.code) store.setJoinCode(meta.code);
   store.setLoading("Preparing world…", 0);
 }
 
@@ -340,7 +524,9 @@ function Lobby() {
         <ChevronLeft className="size-4" /> Back
       </button>
       <h2 className="pixel-title mb-1 text-3xl">Lobby</h2>
-      <p className="mb-4 text-sm text-muted">Host a world or join a friend. XP can unlock published servers.</p>
+      <p className="mb-4 text-sm text-muted">
+        Host from this device like a LAN world. Friends join with your code. When you later put the site on Cloudflare, the same join codes still work.
+      </p>
       <label className="text-xs text-muted">Join code</label>
       <div className="mb-4 flex gap-2">
         <input
@@ -381,6 +567,10 @@ function Lobby() {
               type="button"
               className="mc-btn min-h-11 px-3 text-sm"
               onClick={() => {
+                if (profile.guest) {
+                  alert("Guests cannot publish. Sign in first.");
+                  return;
+                }
                 upsert({ ...w, published: true, priceXp: price });
               }}
             >
@@ -411,8 +601,17 @@ function Lobby() {
           </button>
         ))}
       </div>
-      <McBtn className="mb-4" onClick={() => setPhase("workshop")}>
-        Create + server snippet
+      <McBtn
+        className="mb-4"
+        onClick={() => {
+          if (profile.guest) {
+            alert("Guests cannot host a published pack. Sign in, then open Game Lab.");
+            return;
+          }
+          setPhase("lab");
+        }}
+      >
+        Host a Game Lab pack
       </McBtn>
       <h3 className="mb-2 text-sm font-medium">Public worlds</h3>
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto">
@@ -445,107 +644,6 @@ function Lobby() {
   );
 }
 
-function SkinStudio() {
-  const setPhase = useApp((s) => s.setPhase);
-  const profile = useApp((s) => s.profile);
-  const setProfile = useApp((s) => s.setProfile);
-  const [custom, setCustom] = useState<SkinData[]>(() => loadCustomSkins());
-  const [draft, setDraft] = useState<SkinData>({
-    id: "custom",
-    name: "Custom",
-    shirt: "#3a78c8",
-    pants: "#3a4a8a",
-    skin: "#e0c090",
-    hair: "#3a2a18",
-  });
-  const [paste, setPaste] = useState("");
-  return (
-    <div className="mx-auto flex h-full w-full max-w-lg flex-col px-5 py-6">
-      <button type="button" onClick={() => setPhase("title")} className="mb-3 flex items-center gap-1 text-sm text-muted">
-        <ChevronLeft className="size-4" /> Back
-      </button>
-      <h2 className="pixel-title mb-4 text-3xl">Skin Studio</h2>
-      <div className="mb-4 flex justify-center">
-        <SkinPreview skin={SKIN_PRESETS.find((s) => s.id === profile.skin) ?? draft} />
-      </div>
-      <div className="mb-4 grid grid-cols-4 gap-2">
-        {SKIN_PRESETS.map((s) => (
-          <button
-            key={s.id}
-            type="button"
-            onClick={() => setProfile({ skin: s.id })}
-            className={`mc-btn min-h-11 text-xs ${profile.skin === s.id ? "mc-btn-primary" : ""}`}
-          >
-            {s.name}
-          </button>
-        ))}
-      </div>
-      <div className="grid grid-cols-2 gap-3">
-        {(["skin", "hair", "shirt", "pants"] as const).map((k) => (
-          <label key={k} className="text-xs text-muted capitalize">
-            {k}
-            <input
-              type="color"
-              value={draft[k]}
-              onChange={(e) => setDraft({ ...draft, [k]: e.target.value })}
-              className="mt-1 h-10 w-full border-2 border-black bg-elevated"
-            />
-          </label>
-        ))}
-      </div>
-      <div className="mt-4 flex gap-2">
-        <McBtn
-          onClick={() => {
-            const next = [...custom, { ...draft, id: `c-${Date.now()}` }];
-            setCustom(next);
-            saveCustomSkins(next);
-            setProfile({ skin: next[next.length - 1]!.id });
-          }}
-        >
-          Save skin
-        </McBtn>
-        <McBtn
-          onClick={() => {
-            void navigator.clipboard.writeText(skinToJSON(draft));
-          }}
-        >
-          Copy JSON
-        </McBtn>
-      </div>
-      <textarea
-        value={paste}
-        onChange={(e) => setPaste(e.target.value)}
-        placeholder="Paste a skin JSON here"
-        className="mt-3 min-h-20 border-2 border-black bg-elevated p-2 text-xs"
-      />
-      <button
-        type="button"
-        className="mc-btn mt-2 min-h-11"
-        onClick={() => {
-          const s = skinFromJSON(paste);
-          if (s) setDraft(s);
-        }}
-      >
-        Apply pasted skin
-      </button>
-    </div>
-  );
-}
-
-function SkinPreview({ skin }: { skin: { shirt: string; pants: string; skin: string; hair: string } }) {
-  return (
-    <div className="relative h-28 w-16">
-      <div className="absolute top-0 left-1/2 size-10 -translate-x-1/2" style={{ background: skin.skin }}>
-        <div className="absolute top-0 inset-x-0 h-3" style={{ background: skin.hair }} />
-        <div className="absolute top-4 left-2 size-1.5 bg-black" />
-        <div className="absolute top-4 right-2 size-1.5 bg-black" />
-      </div>
-      <div className="absolute top-10 left-1/2 h-10 w-8 -translate-x-1/2" style={{ background: skin.shirt }} />
-      <div className="absolute top-[4.5rem] left-1/2 h-8 w-8 -translate-x-1/2" style={{ background: skin.pants }} />
-    </div>
-  );
-}
-
 function PlayView() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const phase = useApp((s) => s.phase);
@@ -557,6 +655,7 @@ function PlayView() {
   const loadingPct = useApp((s) => s.loadingPct);
   const setOverlay = useApp((s) => s.setOverlay);
   const setHud = useApp((s) => s.setHud);
+  const multiplayer = useApp((s) => s.multiplayer);
 
   useEffect(() => {
     if (!active || !canvasRef.current) return;
@@ -628,12 +727,15 @@ function PlayView() {
       {phase === "playing" && overlay === "none" && hud && <Hud hud={hud} />}
       {phase === "playing" && overlay === "none" && <MobileControls />}
       {overlay === "pause" && <PauseMenu />}
+      {overlay === "studio" && <StudioTools />}
       {overlay === "settings" && <SettingsPanel fromPause={phase === "playing"} />}
       {(overlay === "inventory" || overlay === "crafting" || overlay === "furnace") && <InventoryOverlay kind={overlay} />}
       {overlay === "chat" && <ChatOverlay />}
       {overlay === "dead" && <DeadScreen />}
       {overlay === "credits" && <WinScreen />}
       {overlay === "advancements" && <Advancements />}
+      {overlay === "storm" && <StormCutscene />}
+      {multiplayer && phase === "playing" && <NetBridge />}
     </>
   );
 }
@@ -813,6 +915,18 @@ function MobileControls() {
   const eng = () => getEngine();
   const [joy, setJoy] = useState({ x: 0, y: 0 });
   const size = useApp((s) => s.settings.touchSize);
+  const scheme = useApp((s) => s.settings.controlScheme);
+  const [coarse, setCoarse] = useState(
+    () => typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches,
+  );
+  useEffect(() => {
+    const mq = window.matchMedia("(pointer: coarse)");
+    const fn = () => setCoarse(mq.matches);
+    mq.addEventListener?.("change", fn);
+    return () => mq.removeEventListener?.("change", fn);
+  }, []);
+  if (scheme === "keys") return null;
+  if (scheme === "auto" && !coarse) return null;
 
   const onStick = (e: React.PointerEvent) => {
     e.stopPropagation();
@@ -951,6 +1065,17 @@ function PauseMenu() {
             Resume
           </McBtn>
           <McBtn onClick={() => setOverlay("settings")}>Settings</McBtn>
+          {(!!getEngine()?.meta.cheats || !!getEngine()?.meta.modJson) && !useApp.getState().multiplayer && !getEngine()?.meta.arena && (
+          <McBtn
+            onClick={() => {
+              const e = getEngine();
+              if (!e) return;
+              e.setOverlay("studio");
+            }}
+          >
+            Studio Tools
+          </McBtn>
+          )}
           <McBtn onClick={() => setOverlay("advancements")}>Advancements</McBtn>
           <McBtn
             onClick={() => {
@@ -969,12 +1094,82 @@ function PauseMenu() {
   );
 }
 
+function StudioTools() {
+  const e = getEngine();
+  const setOverlay = useApp((s) => s.setOverlay);
+  const [tick, setTick] = useState(0);
+  if (!e) return null;
+  const blocked = !!(e.meta.arena || useApp.getState().multiplayer);
+  const toggle = (k: keyof typeof e.studio) => {
+    if (blocked) return;
+    e.studio[k] = !e.studio[k];
+    e.applyStudio();
+    setTick((n) => n + 1);
+  };
+  const give = (id: number) => {
+    if (blocked) return;
+    e.player.give(id, id < 10000 ? 64 : 1);
+    e.toastMsg("Gave item");
+    setTick((n) => n + 1);
+  };
+  void tick;
+  const row = (k: keyof typeof e.studio, label: string) => (
+    <button
+      type="button"
+      className={`mc-btn min-h-11 w-full ${e.studio[k] ? "mc-btn-primary" : ""}`}
+      onClick={() => toggle(k)}
+    >
+      {label} {e.studio[k] ? "ON" : "off"}
+    </button>
+  );
+  return (
+    <div className="pointer-events-none absolute inset-0 z-40 flex items-start justify-start p-3 pt-[max(3rem,env(safe-area-inset-top))]">
+      <div className="pointer-events-auto mc-panel max-h-[80vh] w-full max-w-xs overflow-y-auto p-4">
+        <h2 className="pixel-title mb-1 text-xl">Studio Tools</h2>
+        <p className="mb-3 text-[11px] text-muted">Local worlds only. Insert or ` to toggle. Not for online or Dual.</p>
+        {blocked && <p className="mb-2 text-sm text-danger">Disabled on online / arena worlds.</p>}
+        <div className="space-y-2">
+          {row("fly", "Fly")}
+          {row("god", "Invincible")}
+          {row("speed", "Speed")}
+          {row("fullbright", "Fullbright")}
+          {row("freeze", "Freeze time")}
+          <div className="grid grid-cols-2 gap-1">
+            <button type="button" className="mc-btn min-h-10 text-xs" onClick={() => give(10023)}>
+              Sword
+            </button>
+            <button type="button" className="mc-btn min-h-10 text-xs" onClick={() => give(1)}>
+              Grass
+            </button>
+            <button type="button" className="mc-btn min-h-10 text-xs" onClick={() => give(42)}>
+              Torch
+            </button>
+            <button type="button" className="mc-btn min-h-10 text-xs" onClick={() => give(10055)}>
+              Gapple
+            </button>
+          </div>
+          <McBtn
+            primary
+            onClick={() => {
+              e.setOverlay("none");
+              setOverlay("none");
+            }}
+          >
+            Close
+          </McBtn>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function InventoryOverlay({ kind }: { kind: Overlay }) {
   const hud = useApp((s) => s.hud);
   const setOverlay = useApp((s) => s.setOverlay);
   const [held, setHeld] = useState<Slot>(null);
   const [craft, setCraft] = useState<Slot[]>(Array.from({ length: 9 }, () => null));
   const [query, setQuery] = useState("");
+  const [invTab, setInvTab] = useState<"all" | "blocks" | "items">("all");
   const table = kind === "crafting";
   const n = table ? 3 : 2;
   const result = useMemo(() => matchRecipe(craft, table), [craft, table]);
@@ -1016,12 +1211,20 @@ function InventoryOverlay({ kind }: { kind: Overlay }) {
   const found = useMemo(() => {
     const q = query.toLowerCase();
     const list: { id: number; name: string }[] = [];
-    for (let i = 1; i < BLOCK_COUNT && list.length < 80; i++) {
-      const b = BLOCKS[i]!;
-      if (!q || b.name.toLowerCase().includes(q)) list.push({ id: b.id, name: b.name });
+    if (invTab !== "items") {
+      for (let i = 1; i < BLOCK_COUNT && list.length < 120; i++) {
+        const b = BLOCKS[i];
+        if (!b) continue;
+        if (!q || b.name.toLowerCase().includes(q)) list.push({ id: b.id, name: b.name });
+      }
     }
-    return list;
-  }, [query]);
+    if (invTab !== "blocks") {
+      for (const it of ITEMS.values()) {
+        if (!q || it.name.toLowerCase().includes(q) || it.key.includes(q)) list.push({ id: it.id, name: it.name });
+      }
+    }
+    return list.slice(0, 160);
+  }, [query, invTab]);
 
   if (!hud) return null;
   return (
@@ -1088,10 +1291,22 @@ function InventoryOverlay({ kind }: { kind: Overlay }) {
         )}
         {creative && (
           <div className="mt-4">
+            <div className="mb-2 grid grid-cols-3 gap-1">
+              {(["all", "blocks", "items"] as const).map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  className={`mc-btn min-h-10 text-xs capitalize ${invTab === t ? "mc-btn-primary" : ""}`}
+                  onClick={() => setInvTab(t)}
+                >
+                  {t}
+                </button>
+              ))}
+            </div>
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search 3,200 blocks…"
+              placeholder="Search boats, potions, blocks…"
               className="mb-2 min-h-11 w-full border-2 border-black bg-elevated px-3 text-sm"
             />
             <div className="inv-grid max-h-40 overflow-y-auto">
@@ -1166,16 +1381,26 @@ function FurnaceMini() {
 }
 
 function ChatOverlay() {
-  const [val, setVal] = useState("/");
+  const [val, setVal] = useState("");
   const setOverlay = useApp((s) => s.setOverlay);
+  const cheatsOn = !!useApp.getState().active?.cheats || !!useApp.getState().active?.modJson || useApp.getState().active?.mode === "creative";
   return (
     <div className="absolute inset-x-0 bottom-0 z-30 bg-black/70 p-3">
       <form
         onSubmit={(e) => {
           e.preventDefault();
-          const r = engineRef?.cheat(val) ?? "";
-          engineRef?.chat.push(val);
-          engineRef?.chat.push(r);
+          const text = val.trim();
+          if (text.startsWith("/")) {
+            if (!cheatsOn) {
+              engineRef?.chat.push("Cheats are off in this world.");
+            } else {
+              const r = engineRef?.cheat(text) ?? "";
+              engineRef?.chat.push(text);
+              engineRef?.chat.push(r);
+            }
+          } else if (text) {
+            engineRef?.chat.push(`${useApp.getState().profile.username}: ${text}`);
+          }
           engineRef?.setOverlay("none");
           setOverlay("none");
         }}
@@ -1185,9 +1410,14 @@ function ChatOverlay() {
           value={val}
           onChange={(e) => setVal(e.target.value)}
           className="min-h-11 w-full border-2 border-black bg-elevated px-3"
+          placeholder={cheatsOn ? "Message or /command" : "Message"}
         />
       </form>
-      <p className="mt-1 text-[11px] text-muted">/give 1 64 · /gamemode creative · /nether · /end · /fly · /home</p>
+      {cheatsOn ? (
+        <p className="mt-1 text-[11px] text-muted">/give 1 64 · /gamemode creative · /time day · /weather clear</p>
+      ) : (
+        <p className="mt-1 text-[11px] text-muted">Chat only. Commands need Allow cheats on the world, or a Game Lab playtest.</p>
+      )}
     </div>
   );
 }
@@ -1246,12 +1476,69 @@ function WinScreen() {
       <div className="max-w-md text-center">
         <h2 className="pixel-title text-4xl">The End?</h2>
         <p className="mt-4 text-sm text-muted">
-          The Void Wyrm is gone. The Pale One cannot follow a player who has finished the story. The world remains yours.
+          The Wither Storm is gone. A star lands on your profile. Five stars become a diamond. The world remains yours.
         </p>
         <McBtn primary className="mt-6" onClick={() => setOverlay("none")}>
           Continue
         </McBtn>
       </div>
+    </div>
+  );
+}
+
+function StormCutscene() {
+  const setOverlay = useApp((s) => s.setOverlay);
+  return (
+    <div className="absolute inset-0 z-40 flex items-center justify-center bg-black/80 px-5">
+      <div className="mc-panel w-full max-w-md p-6 text-center">
+        <h2 className="pixel-title mb-3 text-3xl">The Wither Storm</h2>
+        <p className="text-sm text-muted">
+          The Void Wyrm is gone, but a command block in the overworld has woken. A three-headed storm pulls the world into itself. Hit the glowing core in its chest until it falls. Then you really clear the story.
+        </p>
+        <McBtn
+          primary
+          className="mt-6"
+          onClick={() => {
+            getEngine()?.beginStorm();
+            setOverlay("none");
+          }}
+        >
+          Face it
+        </McBtn>
+      </div>
+    </div>
+  );
+}
+
+function NetBridge() {
+  const joinCode = useApp((s) => s.joinCode);
+  const profile = useApp((s) => s.profile);
+  const isHost = useApp((s) => s.isHost);
+  const code = (joinCode || useApp.getState().active?.code || "local").slice(0, 24);
+  const net = useP2PRoom({ room: code, name: profile.username });
+  useEffect(() => {
+    useApp.getState().setNet({ peers: net.peers.map((p) => ({ id: p.id, name: p.name })) });
+  }, [net.peers]);
+  useEffect(() => {
+    const un = net.onMessage((_from, data) => {
+      const d = data as { t?: string; x?: number; y?: number; z?: number };
+      if (d?.t === "pos") {
+        /* guests render host world locally; positions are informational */
+      }
+    });
+    const id = window.setInterval(() => {
+      const e = getEngine();
+      if (!e) return;
+      net.broadcast({ t: "pos", x: e.player.x, y: e.player.y, z: e.player.z, name: profile.username });
+    }, 80);
+    return () => {
+      un();
+      window.clearInterval(id);
+    };
+  }, [net, profile.username]);
+  return (
+    <div className="pointer-events-none absolute top-3 right-3 z-30 mc-panel px-3 py-1 text-[11px]">
+      {isHost ? "Hosting" : "Joined"} · {code} · {net.peers.length} peer{net.peers.length === 1 ? "" : "s"}
     </div>
   );
 }
@@ -1288,8 +1575,8 @@ function Minigames() {
       <button type="button" onClick={() => setPhase("title")} className="mb-3 flex items-center gap-1 text-sm text-muted">
         <ChevronLeft className="size-4" /> Back
       </button>
-      <h2 className="pixel-title mb-1 text-3xl">Minigames</h2>
-      <p className="mb-4 text-sm text-muted">Official arenas with bots. Friends can join with the room code.</p>
+      <h2 className="pixel-title mb-1 text-3xl">Mini Games</h2>
+      <p className="mb-4 text-sm text-muted">Official arenas with bots. Dual is sword and shield, no building. Friends can join with the room code.</p>
       <div className="space-y-2">
         {ARENA_LIST.map((a) => (
           <button
@@ -1323,7 +1610,7 @@ function Workshop() {
       </button>
       <h2 className="pixel-title mb-1 text-3xl">Server snippet</h2>
       <p className="mb-3 text-sm text-muted">
-        Edit kit JSON for this world only — like a tiny GitHub gist. Publish from the lobby when you are happy.
+        Public mod JSON — kit, gamerules, and mob AI. Bots wander, guard, chase, circle, or flee. Boot a full world, not Dual.
       </p>
       <label className="text-xs text-muted">Server name</label>
       <input
@@ -1346,7 +1633,6 @@ function Workshop() {
             JSON.parse(code);
             const meta = newWorldMeta(name || "My Server", Date.now() % 1e9, "survival", true);
             meta.modJson = code;
-            meta.arena = "duel";
             upsert(meta);
             useApp.getState().setNet({ multiplayer: true, isHost: true });
             void bootWorld(meta, true);

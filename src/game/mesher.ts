@@ -62,10 +62,10 @@ export function meshChunk(
   const sample = (x: number, y: number, z: number): number => {
     if (y < 0 || y >= CHUNK_H) return y < 0 ? 4 : 0;
     if (x >= 0 && x < CHUNK_W && z >= 0 && z < CHUNK_W) return blocks[idx(x, y, z)]!;
-    if (x >= CHUNK_W) return neighbors.px ? neighbors.px[idx(0, y, z)]! : 0;
-    if (x < 0) return neighbors.nx ? neighbors.nx[idx(CHUNK_W - 1, y, z)]! : 0;
-    if (z >= CHUNK_W) return neighbors.pz ? neighbors.pz[idx(x, y, 0)]! : 0;
-    if (z < 0) return neighbors.nz ? neighbors.nz[idx(x, y, CHUNK_W - 1)]! : 0;
+    if (x >= CHUNK_W) return neighbors.px ? neighbors.px[idx(0, y, z)]! : -1;
+    if (x < 0) return neighbors.nx ? neighbors.nx[idx(CHUNK_W - 1, y, z)]! : -1;
+    if (z >= CHUNK_W) return neighbors.pz ? neighbors.pz[idx(x, y, 0)]! : -1;
+    if (z < 0) return neighbors.nz ? neighbors.nz[idx(x, y, CHUNK_W - 1)]! : -1;
     return 0;
   };
 
@@ -89,6 +89,7 @@ export function meshChunk(
         for (let f = 0; f < 6; f++) {
           const nx = x + DX[f]!, ny = y + DY[f]!, nz = z + DZ[f]!;
           const nid = sample(nx, ny, nz);
+          if (nid < 0) continue;
           const nd = BLOCKS[nid];
           const hide = nd && isOpaque(nid) && !isFluid && def.shape === "cube";
           const sameFluid = isFluid && nd && nd.fluid === def.fluid;

@@ -10,6 +10,7 @@ export interface Atlas {
   canvas: HTMLCanvasElement;
   uv(tile: number): { u0: number; v0: number; u1: number; v1: number };
   tileOf(id: number, face: 0 | 1 | 2): number;
+  paintPixels: (tile: number, pixels: number[]) => void;
 }
 
 function px(ctx: CanvasRenderingContext2D, x: number, y: number, c: string) {
@@ -556,6 +557,8 @@ export function createAtlas(): Atlas {
       return { u0, v0, u1, v1 };
     },
     tileOf(id: number, face: 0 | 1 | 2) {
+      const b = BLOCKS[id];
+      if (b && b.tex >= 820 && b.tex < 1024) return b.tex;
       if (id === GRASS) return face === 1 ? GRASS_TOP_T : face === 2 ? DIRT_T : GRASS_SIDE_T;
       if (id === WATER) return WATER_T;
       if (id === LAVA) return LAVA_T;
@@ -564,7 +567,6 @@ export function createAtlas(): Atlas {
         return face === 1 || face === 2 ? LOG_TOP_T : LOG_SIDE_T;
       }
       if (special[id] !== undefined) return special[id]!;
-      const b = BLOCKS[id];
       if (!b) return STONE_T;
       if (b.shape === "cross") return PLANT_T;
       if (b.cutout) return LEAVES_T;
@@ -577,6 +579,25 @@ export function createAtlas(): Atlas {
       if (b.category === "stone" || b.tool === "pickaxe") return id % 3 === 0 ? COBBLE_T : STONE_T;
       if (b.tool === "shovel") return DIRT_T;
       return patternStart + (id % 180);
+    },
+    paintPixels(tile: number, pixels: number[]) {
+      const col = ((tile % ATLAS_TILES) + ATLAS_TILES) % ATLAS_TILES;
+      const row = Math.floor(tile / ATLAS_TILES);
+      const ox = col * TILE;
+      const oy = row * TILE;
+      const g = canvas.getContext("2d");
+      if (!g) return;
+      const img = g.createImageData(TILE, TILE);
+      for (let i = 0; i < TILE * TILE; i++) {
+        const c = pixels[i] ?? 0xffffff;
+        const o = i * 4;
+        img.data[o] = (c >> 16) & 255;
+        img.data[o + 1] = (c >> 8) & 255;
+        img.data[o + 2] = c & 255;
+        img.data[o + 3] = 255;
+      }
+      g.putImageData(img, ox, oy);
+      atlas.texture.needsUpdate = true;
     },
   };
 

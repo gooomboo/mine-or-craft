@@ -285,17 +285,7 @@ function genDuel(blocks: Uint16Array, biomes: Uint8Array, cx: number, cz: number
       if (ax <= 2 && az <= 2) set(blocks, x, floor, z, OBSIDIAN);
       if (Math.abs(wz + 16) <= 1 && ax <= 2) set(blocks, x, floor, z, IRON_BLOCK);
       if (Math.abs(wz - 16) <= 1 && ax <= 2) set(blocks, x, floor, z, IRON_BLOCK);
-      if (wx === -22 && wz >= -2 && wz <= 2) {
-        for (let y = floor + 1; y <= floor + 4; y++) {
-          if (wz === -2 || wz === 2 || y === floor + 1 || y === floor + 4) set(blocks, x, y, z, OBSIDIAN);
-          else set(blocks, x, y, z, NETHER_PORTAL);
-        }
-      }
-      if (wx === 22 && wz >= -1 && wz <= 1 && az <= 1) {
-        set(blocks, x, floor + 1, z, END_PORTAL_FRAME);
-        if (wz === 0) set(blocks, x, floor + 1, z, END_PORTAL);
-      }
-      if ((wx % 8 === 0 && wz % 8 === 0) && ax < 22 && az < 22) set(blocks, x, 44, z, GLOWSTONE);
+      if ((wx % 8 === 0 && wz % 8 === 0) && ax < 22 && az < 22 && az > 2 && ax > 2) set(blocks, x, 44, z, GLOWSTONE);
     }
   }
 }
@@ -611,25 +601,27 @@ export function generateChunk(
     }
   }
 
-  // water lakes
-  if (rng() < 0.08) {
+  // occasional blended ponds — not a lake in every chunk
+  if (rng() < 0.018) {
     const lx = 4 + Math.floor(rng() * 8);
     const lz = 4 + Math.floor(rng() * 8);
     const col = cols[lx + lz * CHUNK_W]!;
-    if (col.height > SEA_LEVEL + 2) {
+    if (col.height > SEA_LEVEL + 3 && !col.biome.includes?.("ocean")) {
       const y = col.height - 1;
-      for (let dx = -2; dx <= 2; dx++) {
-        for (let dz = -2; dz <= 2; dz++) {
-          if (Math.abs(dx) + Math.abs(dz) <= 3) {
-            set(blocks, lx + dx, y, lz + dz, WATER);
-            set(blocks, lx + dx, y - 1, lz + dz, CLAY);
-          }
+      for (let dx = -3; dx <= 3; dx++) {
+        for (let dz = -3; dz <= 3; dz++) {
+          const d = Math.hypot(dx, dz);
+          if (d > 2.6 + rng() * 0.5) continue;
+          set(blocks, lx + dx, y, lz + dz, WATER);
+          if (d < 2) set(blocks, lx + dx, y - 1, lz + dz, CLAY);
         }
       }
     }
   }
 
-  // stronghold portal room near origin-ish
+  // Players build their own nether portal. No free gate at origin.
+
+  // Stronghold frame (empty until all story advancements)
   const strongCx = Math.floor(((seed % 400) - 200) / CHUNK_W);
   const strongCz = Math.floor((((seed * 7) % 400) - 200) / CHUNK_W);
   if (cx === strongCx && cz === strongCz) {
@@ -644,6 +636,15 @@ export function generateChunk(
   void COBBLE;
   void OBSIDIAN;
   return { blocks, biomes };
+}
+
+function placeNetherPortal(blocks: Uint16Array, x0: number, y0: number, z0: number) {
+  for (let y = 0; y < 5; y++) {
+    for (let x = 0; x < 4; x++) {
+      const edge = y === 0 || y === 4 || x === 0 || x === 3;
+      set(blocks, x0 + x, y0 + y, z0, edge ? OBSIDIAN : NETHER_PORTAL);
+    }
+  }
 }
 
 function carveStronghold(blocks: Uint16Array) {
@@ -760,6 +761,9 @@ function genNether(
       }
     }
   }
+  if (cx === 0 && cz === 0) {
+    // no free nether portal — player must light obsidian
+  }
   void BLACKSTONE;
 }
 
@@ -772,7 +776,7 @@ function genEnd(blocks: Uint16Array, biomes: Uint8Array, seed: number, cx: numbe
     for (let z = 0; z < CHUNK_W; z++) {
       for (let x = 0; x < CHUNK_W; x++) {
         const dx = x - 8, dz = z - 8;
-        if (dx * dx + dz * dz < 80) {
+        if (dx * dx + dz * dz < 110) {
           for (let y = 40; y < 48; y++) set(blocks, x, y, z, END_STONE);
         }
       }
@@ -818,15 +822,17 @@ function genEnd(blocks: Uint16Array, biomes: Uint8Array, seed: number, cx: numbe
   }
 }
 
-export function findSpawn(seed: number, noises: Noises): { x: number; y: number; z: number } {
+export function findSpawn(seed: number, noises: Noises, preferBiome?: string): { x: number; y: number; z: number } {
   const prefer = (id: string) =>
-    id === "plains" ||
-    id === "forest" ||
-    id === "flower_forest" ||
-    id === "sunflower_plains" ||
-    id === "meadow" ||
-    id === "savanna" ||
-    id === "birch_forest";
+    (preferBiome && id === preferBiome) ||
+    (!preferBiome &&
+      (id === "plains" ||
+        id === "forest" ||
+        id === "flower_forest" ||
+        id === "sunflower_plains" ||
+        id === "meadow" ||
+        id === "savanna" ||
+        id === "birch_forest"));
   const cold = (id: string) =>
     id.includes("snow") || id.includes("ice") || id.includes("frozen") || id === "grove" || id === "taiga";
   let fallback: { x: number; y: number; z: number } | null = null;

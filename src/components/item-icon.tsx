@@ -170,6 +170,35 @@ function drawTool(kind: string, tint: number) {
       p(9, 8, td);
       p(7, 2, t);
       p(8, 2, t);
+    } else if (kind === "boat") {
+      for (let x = 2; x <= 13; x++) p(x, 11, t);
+      for (let x = 3; x <= 12; x++) p(x, 12, td);
+      p(2, 10, tl);
+      p(13, 10, tl);
+      for (let y = 8; y <= 10; y++) {
+        p(2, y, t);
+        p(13, y, t);
+      }
+      p(7, 7, wood);
+      p(7, 6, woodL);
+      p(7, 5, wood);
+    } else if (kind === "potion") {
+      for (let y = 8; y <= 14; y++) for (let x = 5; x <= 10; x++) p(x, y, t);
+      p(6, 7, tl);
+      p(9, 7, tl);
+      p(7, 4, 0xe8e8e8);
+      p(8, 4, 0xe8e8e8);
+      p(7, 5, 0xc8c8c8);
+      p(8, 5, 0xc8c8c8);
+      p(6, 6, 0xe8e8e8);
+      p(9, 6, 0xe8e8e8);
+    } else if (kind === "elytra") {
+      for (let i = 0; i < 8; i++) {
+        p(3, 4 + i, t);
+        p(12, 4 + i, t);
+        p(4 + (i < 4 ? i : 7 - i), 5 + i, tl);
+        p(11 - (i < 4 ? i : 7 - i), 5 + i, td);
+      }
     } else {
       for (let y = 4; y <= 11; y++) for (let x = 5; x <= 10; x++) p(x, y, (x + y) % 2 ? t : tl);
       p(7, 3, tl);
@@ -211,6 +240,9 @@ function drawItem(canvas: HTMLCanvasElement, id: number, size: number) {
   else if (def?.place === 6 || def?.place === 7 || key.includes("bucket")) kind = "bucket";
   else if (key.includes("pearl") || key.includes("eye")) kind = "pearl";
   else if (key.includes("bow")) kind = "bow";
+  else if (key.includes("boat") || key.includes("raft")) kind = "boat";
+  else if (key.includes("elytra")) kind = "elytra";
+  else if (key.includes("potion") || key.includes("bottle") || key.includes("stew") || key.includes("soup")) kind = "potion";
   const sprite = drawTool(kind, tint);
   ctx.drawImage(sprite, 0, 0, size, size);
 }

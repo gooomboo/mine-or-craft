@@ -5,13 +5,14 @@ export const WORLD_MIN_Y = 0;
 export const WORLD_MAX_Y = CHUNK_H - 1;
 
 export type Dim = "overworld" | "nether" | "end";
-export type GameMode = "survival" | "creative" | "hardcore";
+export type GameMode = "survival" | "creative" | "hardcore" | "adventure" | "spectator";
 export type ToolType = "none" | "pickaxe" | "axe" | "shovel" | "hoe" | "shears" | "sword";
 export type BlockShape = "cube" | "cross" | "fluid" | "torch" | "slab" | "pane";
-export type GraphicsPreset = "fast" | "fancy" | "fabulous";
+export type GraphicsPreset = "fast" | "fancy" | "fabulous" | "rtx";
 export type CameraMode = "first" | "third" | "front";
 export type Difficulty = "peaceful" | "easy" | "normal" | "hard";
 export type CrosshairStyle = "cross" | "dot" | "circle" | "off";
+export type ControlScheme = "auto" | "touch" | "keys";
 export type ArenaId = "duel" | "bedwars" | "skywars" | "ctf";
 
 
@@ -84,6 +85,7 @@ export interface WorldMeta {
   code?: string;
   arena?: ArenaId;
   modJson?: string;
+  spawnBiome?: string;
 }
 
 export interface PlayerSave {
@@ -105,6 +107,7 @@ export interface PlayerSave {
   time: number;
   weather: number;
   killedDragon: boolean;
+  killedStorm?: boolean;
   advancements: string[];
 }
 
@@ -157,6 +160,21 @@ export interface Settings {
   heldItem: boolean;
   guiScale: number;
   subtitles: boolean;
+  controlScheme: ControlScheme;
+  optimized: boolean;
+  binds: {
+    forward: string;
+    back: string;
+    left: string;
+    right: string;
+    jump: string;
+    sneak: string;
+    sprint: string;
+    inventory: string;
+    drop: string;
+    chat: string;
+    use: string;
+  };
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -208,6 +226,21 @@ export const DEFAULT_SETTINGS: Settings = {
   heldItem: true,
   guiScale: 1,
   subtitles: false,
+  controlScheme: "auto",
+  optimized: false,
+  binds: {
+    forward: "KeyW",
+    back: "KeyS",
+    left: "KeyA",
+    right: "KeyD",
+    jump: "Space",
+    sneak: "ShiftLeft",
+    sprint: "ControlLeft",
+    inventory: "KeyE",
+    drop: "KeyQ",
+    chat: "KeyT",
+    use: "KeyC",
+  },
 };
 
 export function chunkKey(dim: Dim, cx: number, cz: number): string {

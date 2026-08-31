@@ -1,9 +1,9 @@
 import * as THREE from "three";
 import type { Atlas } from "./atlas";
-import { BLOCKS, isSolid } from "./blocks";
+import { BLOCKS, CACTUS, FIRE, isSolid, LAVA, MAGMA, WATER } from "./blocks";
 import { generateChunk, makeNoises, type ChunkData, type Noises } from "./gen";
 import { meshChunk } from "./mesher";
-import { CHUNK_H, CHUNK_W, chunkKey, worldToChunk, localCoord, type ArenaId, type Dim } from "./types";
+import { CHUNK_H, CHUNK_W, chunkKey, worldToChunk, localCoord, SEA_LEVEL, type ArenaId, type Dim } from "./types";
 
 export interface Chunk {
   cx: number;
@@ -201,7 +201,8 @@ export class World {
       return da * da + za * za - (db * db + zb * zb);
     });
     let n = 0;
-    while (this.buildQueue.length && performance.now() - t0 < budgetMs && n < 3) {
+    const cap = budgetMs > 20 ? 32 : 3;
+    while (this.buildQueue.length && performance.now() - t0 < budgetMs && n < cap) {
       const ch = this.buildQueue.shift()!;
       if (!this.chunks.has(chunkKey(ch.dim, ch.cx, ch.cz))) continue;
       this.rebuild(ch, useAo);
@@ -314,6 +315,81 @@ export class World {
       if (isSolid(this.getBlock(Math.floor(x), y, Math.floor(z)))) return y;
     }
     return SEA();
+  }
+
+  /** First standable air cell (two empty blocks over solid), scanning from a preferred height so Nether roofs are ignored. */
+  findStandY(x: number, z: number, prefer = 44): number {
+    const ix = Math.floor(x);
+    const iz = Math.floor(z);
+    const open = (y: number) => {
+      const here = this.getBlock(ix, y, iz);
+      const above = this.getBlock(ix, y + 1, iz);
+      return !isSolid(here) && !isSolid(above);
+    };
+    for (let y = prefer; y >= 2; y--) {
+      if (isSolid(this.getBlock(ix, y - 1, iz)) && open(y)) return y;
+    }
+    for (let y = prefer; y < CHUNK_H - 3; y++) {
+      if (isSolid(this.getBlock(ix, y - 1, iz)) && open(y)) return y;
+    }
+    return prefer;
+  }
+
+  isDanger(id: number): boolean {
+    if (!id) return false;
+    const b = BLOCKS[id];
+    if (!b) return false;
+    if (b.fluid) return true;
+    return id === WATER || id === LAVA || id === FIRE || id === MAGMA || id === CACTUS;
+  }
+
+  isSafeStand(x: number, y: number, z: number, minY = SEA_LEVEL): boolean {
+    const ix = Math.floor(x);
+    const iz = Math.floor(z);
+    const iy = Math.floor(y);
+    const feet = this.getBlock(ix, iy, iz);
+    const head = this.getBlock(ix, iy + 1, iz);
+    const below = this.getBlock(ix, iy - 1, iz);
+    if (isSolid(feet) || isSolid(head)) return false;
+    if (this.isDanger(feet) || this.isDanger(head)) return false;
+    if (!isSolid(below) || this.isDanger(below)) return false;
+    if (iy < minY) return false;
+    return true;
+  }
+
+  findSafeSpawn(sx: number, sz: number, prefer = 56, minY = SEA_LEVEL): { x: number; y: number; z: number } {
+    const ox = Math.floor(sx);
+    const oz = Math.floor(sz);
+    const tryCol = (x: number, z: number) => {
+      const y = this.findStandY(x + 0.5, z + 0.5, prefer);
+      if (this.isSafeStand(x + 0.5, y, z + 0.5, minY)) return { x: x + 0.5, y, z: z + 0.5 };
+      return null;
+    };
+    const first = tryCol(ox, oz);
+    if (first) return first;
+    for (let r = 1; r <= 36; r++) {
+      for (let dx = -r; dx <= r; dx++) {
+        for (let dz = -r; dz <= r; dz++) {
+          if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;
+          const hit = tryCol(ox + dx, oz + dz);
+          if (hit) return hit;
+        }
+      }
+    }
+    const y = Math.max(SEA_LEVEL + 2, this.highestSolid(sx, sz) + 2);
+    const pad = Math.floor(y) - 1;
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        const px = ox + dx;
+        const pz = oz + dz;
+        if (this.isDanger(this.getBlock(px, pad, pz)) || !isSolid(this.getBlock(px, pad, pz))) {
+          this.setBlock(px, pad, pz, 1);
+        }
+        this.setBlock(px, pad + 1, pz, 0);
+        this.setBlock(px, pad + 2, pz, 0);
+      }
+    }
+    return { x: ox + 0.5, y: pad + 1, z: oz + 0.5 };
   }
 
   dispose() {

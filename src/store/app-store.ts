@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import { DEFAULT_SETTINGS, type CameraMode, type CrosshairStyle, type GameMode, type Settings, type Slot, type WorldMeta } from "@/game/types";
-import { loadProfile, loadSettingsRaw, loadWorlds, saveProfile, saveSettingsRaw, saveWorlds, type Profile } from "@/game/save";
+import { loadProfile, loadSession, loadSettingsRaw, loadWorlds, persistAccountProfile, saveProfile, saveSettingsRaw, saveWorlds, type Profile } from "@/game/save";
 
-export type Phase = "title" | "menu" | "worlds" | "create" | "lobby" | "skins" | "minigames" | "workshop" | "loading" | "playing";
+export type Phase = "login" | "title" | "menu" | "playhub" | "worlds" | "create" | "lobby" | "skins" | "minigames" | "workshop" | "friends" | "market" | "lab" | "loading" | "playing";
 export type Overlay =
   | "none"
   | "pause"
@@ -14,7 +14,9 @@ export type Overlay =
   | "dead"
   | "credits"
   | "advancements"
-  | "locked";
+  | "locked"
+  | "studio"
+  | "storm";
 
 export interface HudSnap {
   health: number;
@@ -50,6 +52,7 @@ export interface HudSnap {
   absorption: number;
   arena?: string;
   kills: number;
+  dualLevel?: number;
   hitFlash?: number;
   blocking?: boolean;
 }
@@ -94,7 +97,7 @@ function readSettings(): Settings {
 }
 
 export const useApp = create<AppState>((set, get) => ({
-  phase: "title",
+  phase: loadSession() ? "title" : "login",
   overlay: "none",
   profile: loadProfile(),
   settings: readSettings(),
@@ -126,6 +129,7 @@ export const useApp = create<AppState>((set, get) => ({
   setProfile: (p) => {
     const profile = { ...get().profile, ...p };
     saveProfile(profile);
+    persistAccountProfile(profile);
     set({ profile });
   },
   setSettings: (s) => {

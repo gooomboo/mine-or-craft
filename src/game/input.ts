@@ -1,3 +1,5 @@
+import type { Settings } from "./types";
+
 export interface Actions {
   moveX: number;
   moveY: number;
@@ -22,6 +24,7 @@ export interface Actions {
   justChat: boolean;
   justCamera: boolean;
   justDebug: boolean;
+  justStudio: boolean;
   block: boolean;
 }
 
@@ -49,6 +52,7 @@ const empty = (): Actions => ({
   justChat: false,
   justCamera: false,
   justDebug: false,
+  justStudio: false,
   block: false,
 });
 
@@ -77,6 +81,19 @@ export class Input {
   touchSprint = false;
   touchBlock = false;
   enabled = true;
+  binds: Settings["binds"] = {
+    forward: "KeyW",
+    back: "KeyS",
+    left: "KeyA",
+    right: "KeyD",
+    jump: "Space",
+    sneak: "ShiftLeft",
+    sprint: "ControlLeft",
+    inventory: "KeyE",
+    drop: "KeyQ",
+    chat: "KeyT",
+    use: "KeyC",
+  };
   private el: HTMLElement | null = null;
 
   attach(el: HTMLElement) {
@@ -164,10 +181,11 @@ export class Input {
 
   poll(): Actions {
     const a = empty();
-    const w = this.has("KeyW") || this.has("ArrowUp");
-    const s = this.has("KeyS") || this.has("ArrowDown");
-    const d = this.has("KeyD") || this.has("ArrowRight");
-    const aa = this.has("KeyA") || this.has("ArrowLeft");
+    const b = this.binds;
+    const w = this.has(b.forward) || this.has("ArrowUp");
+    const s = this.has(b.back) || this.has("ArrowDown");
+    const d = this.has(b.right) || this.has("ArrowRight");
+    const aa = this.has(b.left) || this.has("ArrowLeft");
     a.moveX = (d ? 1 : 0) - (aa ? 1 : 0) + this.touchMove.x;
     a.moveY = (w ? 1 : 0) - (s ? 1 : 0) + this.touchMove.y;
     const mag = Math.hypot(a.moveX, a.moveY);
@@ -175,10 +193,10 @@ export class Input {
       a.moveX /= mag;
       a.moveY /= mag;
     }
-    a.jump = this.has("Space") || this.touchJump;
+    a.jump = this.has(b.jump) || this.has("Space") || this.touchJump;
 
-    const sneakHeld = this.has("ShiftLeft") || this.has("ShiftRight") || this.touchSneak;
-    const sprintHeld = this.has("ControlLeft") || this.has("ControlRight") || this.has("KeyR") || this.touchSprint;
+    const sneakHeld = this.has(b.sneak) || this.has("ShiftLeft") || this.has("ShiftRight") || this.touchSneak;
+    const sprintHeld = this.has(b.sprint) || this.has("ControlLeft") || this.has("ControlRight") || this.touchSprint;
     if (this.sneakToggle) {
       if (sneakHeld && !this.prev.sneak) this.sneakLatch = !this.sneakLatch;
       a.sneak = this.sneakLatch;
@@ -194,11 +212,11 @@ export class Input {
 
     a.attack = this.has("Mouse0") || this.touchAttack;
     a.use = this.has("Mouse2") || this.touchUse;
-    a.block = this.touchBlock || this.has("KeyC");
-    a.inventory = this.has("KeyE");
+    a.block = this.touchBlock || this.has(b.use);
+    a.inventory = this.has(b.inventory);
     a.pause = this.has("Escape");
-    a.drop = this.has("KeyQ");
-    a.chat = this.has("Slash") || this.has("KeyT");
+    a.drop = this.has(b.drop);
+    a.chat = this.has("Slash") || this.has(b.chat);
     a.lookX = this.lookDX * this.sens * 0.012 * (this.invertX ? -1 : 1) + this.touchLook.x * this.touchLookSens;
     a.lookY = this.lookDY * this.sens * 0.012 * (this.invertY ? -1 : 1) + this.touchLook.y * this.touchLookSens;
     this.lookDX = 0;
@@ -217,8 +235,10 @@ export class Input {
     a.justChat = a.chat && !this.prev.chat;
     a.justCamera = this.has("F5") && !this._camHeld;
     a.justDebug = this.has("F3") && !this._dbgHeld;
+    a.justStudio = (this.has("Insert") || this.has("Backquote")) && !this._studioHeld;
     this._camHeld = this.has("F5");
     this._dbgHeld = this.has("F3");
+    this._studioHeld = this.has("Insert") || this.has("Backquote");
     this.prev = { ...a, sneak: sneakHeld, sprint: sprintHeld };
     this.actions = a;
     return a;
@@ -226,4 +246,5 @@ export class Input {
 
   private _camHeld = false;
   private _dbgHeld = false;
+  private _studioHeld = false;
 }

@@ -4,3 +4,15 @@ node_modules
 .DS_Store
 *.log
 .vite
+.output
+.nitro
+.tanstack
+dist
+artifacts
+attachments
+screenshots
+tmp-qa-final.mjs
+.grok
+*.png
+.env
+.env.*

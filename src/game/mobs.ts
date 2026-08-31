@@ -40,6 +40,7 @@ export type MobKind =
   | "wraith"
   | "dragon"
   | "wither"
+  | "wither_storm"
   | "duelist"
   | "bee"
   | "polar_bear"
@@ -89,6 +90,10 @@ export interface Mob {
   cooldown?: number;
   dead: boolean;
   blocking?: boolean;
+  tier?: number;
+  ai?: "wander" | "chase" | "flee" | "idle" | "guard" | "circle";
+  aiT?: number;
+  lastHurt?: number;
 }
 
 let nextId = 1;
@@ -216,17 +221,36 @@ function makeMesh(kind: MobKind): THREE.Group {
   } else if (kind === "wraith") {
     addHumanoid(g, { skin: 0xe8e0d0, shirt: 0x3a78c8, pants: 0x1a1a28, hair: 0xf0f0e8, eyes: 0xffffff });
   } else if (kind === "dragon") {
-    g.add(part(3.2, 1.4, 6.0, 0x1a1028, 2.0));
-    g.add(part(1.6, 1.2, 2.2, 0x1a1028, 2.8, 0, -3.2));
-    g.add(part(4.5, 0.15, 2.2, 0x2a1840, 2.4, 3.2, 0));
-    g.add(part(4.5, 0.15, 2.2, 0x2a1840, 2.4, -3.2, 0));
-    g.add(part(0.3, 0.2, 0.2, 0xe050e0, 3.0, 0.4, -4.0, 0xe050e0));
+    g.add(part(3.6, 1.5, 7.2, 0x1a1028, 2.1));
+    g.add(part(1.8, 1.4, 2.4, 0x1a1028, 3.0, 0, -3.6));
+    g.add(part(0.9, 0.7, 1.4, 0x24122e, 3.15, 0, -4.8));
+    g.add(part(5.4, 0.12, 2.6, 0x2a1840, 2.6, 3.6, 0.2));
+    g.add(part(5.4, 0.12, 2.6, 0x2a1840, 2.6, -3.6, 0.2));
+    g.add(part(2.2, 0.08, 1.4, 0x3a2060, 2.7, 4.8, -0.4));
+    g.add(part(2.2, 0.08, 1.4, 0x3a2060, 2.7, -4.8, -0.4));
+    g.add(part(0.28, 0.22, 0.22, 0xe050e0, 3.2, 0.45, -5.2, 0xe050e0));
+    g.add(part(0.28, 0.22, 0.22, 0xe050e0, 3.2, -0.45, -5.2, 0xe050e0));
+    g.add(part(0.2, 0.5, 2.4, 0x1a1028, 1.6, 0, 3.4));
+    g.add(part(0.35, 0.7, 0.18, 0x3a1860, 2.2, 0.55, -2.4));
+    g.add(part(0.35, 0.7, 0.18, 0x3a1860, 2.2, -0.55, -2.4));
   } else if (kind === "wither") {
     g.add(part(0.7, 0.7, 0.7, 0x1a1a1a, 2.2));
     g.add(part(0.55, 0.55, 0.55, 0x1a1a1a, 2.15, -0.7, 0));
     g.add(part(0.55, 0.55, 0.55, 0x1a1a1a, 2.15, 0.7, 0));
     g.add(part(0.5, 1.4, 0.4, 0x2a2a2a, 1.1));
     g.add(part(0.14, 0.08, 0.08, 0xc42828, 2.28, 0, -0.36, 0xc42828));
+  } else if (kind === "wither_storm") {
+    g.add(part(4.2, 4.6, 4.2, 0x2a2030, 3.2));
+    g.add(part(1.6, 1.6, 1.6, 0x1a1a1a, 6.4, 0, -1.4));
+    g.add(part(1.3, 1.3, 1.3, 0x1a1a1a, 6.1, -2.2, -0.6));
+    g.add(part(1.3, 1.3, 1.3, 0x1a1a1a, 6.1, 2.2, -0.6));
+    g.add(part(0.9, 0.9, 0.5, 0xc45c4a, 3.4, 0, -2.2, 0xff6644));
+    g.add(part(0.22, 0.22, 0.22, 0xc42828, 6.55, 0, -2.2, 0xc42828));
+    g.add(part(0.18, 0.18, 0.18, 0xc42828, 6.25, -2.2, -1.3, 0xc42828));
+    g.add(part(0.18, 0.18, 0.18, 0xc42828, 6.25, 2.2, -1.3, 0xc42828));
+    g.add(part(0.55, 5.5, 0.55, 0x3a2a40, 1.4, -2.6, 1.4));
+    g.add(part(0.55, 5.5, 0.55, 0x3a2a40, 1.4, 2.6, 1.4));
+    g.add(part(0.7, 0.7, 3.4, 0x5a20a0, 4.8, 0, 3.2, 0x7a40c8));
   } else if (kind === "duelist") {
     addHumanoid(g, {
       skin: 0xc68642,
@@ -357,6 +381,7 @@ const STATS: Record<MobKind, { hp: number; hostile: boolean; speed: number; dmg:
   wraith: { hp: 200, hostile: true, speed: 3.4, dmg: 40 },
   dragon: { hp: 200, hostile: true, speed: 8, dmg: 10 },
   wither: { hp: 300, hostile: true, speed: 2.2, dmg: 12 },
+  wither_storm: { hp: 800, hostile: true, speed: 3.4, dmg: 16 },
   duelist: { hp: 20, hostile: true, speed: 5.6, dmg: 8 },
   bee: { hp: 10, hostile: false, speed: 2.4, dmg: 2 },
   polar_bear: { hp: 30, hostile: true, speed: 2.2, dmg: 6 },
@@ -412,6 +437,10 @@ export function spawnMob(kind: MobKind, x: number, y: number, z: number, scene: 
     cooldown: 0,
     dead: false,
     blocking: false,
+    tier: 1,
+    ai: st.hostile ? "chase" : "wander",
+    aiT: Math.random() * 2,
+    lastHurt: 0,
   };
 }
 
@@ -420,6 +449,7 @@ const FLYING: Set<MobKind> = new Set([
   "blaze",
   "phantom",
   "wither",
+  "wither_storm",
   "bee",
   "bat",
   "allay",
@@ -437,11 +467,13 @@ export function updateMobs(
   onExplode: (x: number, y: number, z: number, r: number) => void,
   flyingSafe: boolean,
   onHitPlayer?: (m: Mob, dmg: number, kb: number) => void,
+  rules?: { aggression?: number; strafe?: boolean; flee?: boolean; defaultAi?: Mob["ai"] },
 ) {
   for (const m of mobs) {
     if (m.dead) continue;
     m.age += dt;
     if (m.cooldown && m.cooldown > 0) m.cooldown -= dt;
+    if (m.lastHurt && m.lastHurt > 0) m.lastHurt -= dt;
     const st = STATS[m.kind];
     const dx = player.x - m.x;
     const dz = player.z - m.z;
@@ -460,6 +492,24 @@ export function updateMobs(
       m.mesh.rotation.y = m.yaw;
       m.mesh.rotation.z = Math.sin(t * 1.4) * 0.12;
       if (dist3 < 6) player.hurtBy(st.dmg * dt, "dragon");
+      continue;
+    }
+
+    if (m.kind === "wither_storm") {
+      const t = m.age;
+      const grow = Math.min(2.4, 1 + t * 0.012);
+      m.mesh.scale.setScalar(grow);
+      const r = 16 + Math.sin(t * 0.2) * 4;
+      m.x += (player.x + Math.sin(t * 0.35) * r - m.x) * dt * 0.35;
+      m.z += (player.z + Math.cos(t * 0.35) * r - m.z) * dt * 0.35;
+      m.y = player.y + 8 + Math.sin(t * 0.6) * 2;
+      m.yaw = Math.atan2(player.x - m.x, player.z - m.z);
+      m.mesh.position.set(m.x, m.y, m.z);
+      m.mesh.rotation.y = m.yaw;
+      const pull = Math.min(1, 18 / Math.max(4, dist3));
+      player.vx += ((m.x - player.x) / Math.max(1, dist3)) * pull * 3 * dt;
+      player.vz += ((m.z - player.z) / Math.max(1, dist3)) * pull * 3 * dt;
+      if (dist3 < 8) player.hurtBy(st.dmg * dt, "wither_storm");
       continue;
     }
 
@@ -514,20 +564,70 @@ export function updateMobs(
       m.kind === "piglin_brute" ||
       m.kind === "guardian" ||
       m.kind === "breeze";
-    const aggro = m.hostile && (night || always || world.dim !== "overworld") && dist < 28;
-    if (aggro) {
-      targetX = dx;
-      targetZ = dz;
+    const agr = rules?.aggression ?? 1;
+    const see = dist < 28 * Math.max(0.45, agr);
+    const aggro =
+      m.ai === "chase" ||
+      (m.hostile && (night || always || world.dim !== "overworld") && see && m.ai !== "idle" && m.ai !== "wander");
+    const forced = m.ai;
+    const wantFlee = (rules?.flee !== false && (m.lastHurt ?? 0) > 0 && m.hp < m.max * 0.28 && !always) || forced === "flee";
+    const flying = FLYING.has(m.kind);
+
+    m.aiT = (m.aiT ?? 0) - dt;
+    if (!forced || forced === "wander" || forced === "idle" || forced === "guard") {
+      if ((m.aiT ?? 0) <= 0) {
+        if (forced === "idle") {
+          m.ai = "idle";
+          m.aiT = 1.4 + Math.random() * 2.4;
+        } else if (forced === "guard") {
+          m.ai = dist < 10 && (m.hostile || m.kind === "golem" || m.kind === "wolf") ? "chase" : "idle";
+          m.aiT = 0.8 + Math.random();
+        } else if (!aggro) {
+          m.ai = Math.random() < 0.38 ? "idle" : "wander";
+          m.aiT = m.ai === "idle" ? 0.8 + Math.random() * 2.2 : 1.6 + Math.random() * 3.4;
+          m.yaw += (Math.random() - 0.5) * 1.8;
+        }
+      }
+    }
+
+    if (wantFlee) {
+      m.yaw = Math.atan2(-dx, -dz);
+      targetX = -dx;
+      targetZ = -dz;
+    } else if (aggro || m.ai === "chase" || m.ai === "circle") {
       m.yaw = Math.atan2(dx, dz);
+      const nx = dx / (dist || 1);
+      const nz = dz / (dist || 1);
+      const strafeOn = rules?.strafe !== false && (m.ai === "circle" || (aggro && dist < 4.2 && Math.sin(m.age * 2.4 + m.id) > 0.15));
+      if (strafeOn) {
+        const sx = -nz;
+        const sz = nx;
+        const amp = Math.sin(m.age * 3.1 + m.id) * st.speed * 0.85;
+        targetX = nx * (dist > 1.4 ? st.speed : -0.6) + sx * amp;
+        targetZ = nz * (dist > 1.4 ? st.speed : -0.6) + sz * amp;
+      } else {
+        targetX = dx;
+        targetZ = dz;
+      }
+    } else if (m.ai === "idle") {
+      targetX = 0;
+      targetZ = 0;
     } else {
-      if ((m.age * 3 + m.id) % 4 < dt * 4) m.yaw += (Math.random() - 0.5) * 1.2;
       targetX = Math.sin(m.yaw);
       targetZ = Math.cos(m.yaw);
+      const aheadX = m.x + Math.sin(m.yaw) * 1.4;
+      const aheadZ = m.z + Math.cos(m.yaw) * 1.4;
+      const drop = m.y - (world.highestSolid(aheadX, aheadZ) + 1);
+      if (!flying && drop > 3.2) {
+        m.yaw += Math.PI * 0.6 + (Math.random() - 0.5);
+        targetX = Math.sin(m.yaw);
+        targetZ = Math.cos(m.yaw);
+      }
     }
-    const flying = FLYING.has(m.kind);
-    const spd = st.speed * (aggro ? 1 : 0.55);
-    m.vx = targetX * spd * (dist > 0.01 ? 1 : 0);
-    m.vz = targetZ * spd * (dist > 0.01 ? 1 : 0);
+    const spd = st.speed * (aggro || wantFlee ? 1 : 0.52) * (m.ai === "idle" ? 0 : 1);
+    const tlen = Math.hypot(targetX, targetZ) || 1;
+    m.vx = (targetX / tlen) * spd;
+    m.vz = (targetZ / tlen) * spd;
     if (flying) {
       const wantY = player.y + (m.kind === "ghast" ? 6 : 2);
       m.vy += (wantY - m.y) * 2 * dt;
@@ -594,18 +694,20 @@ function tickDuelist(
   onHitPlayer?: (m: Mob, dmg: number, kb: number) => void,
 ) {
   m.yaw = Math.atan2(dx, dz);
+  const lv = Math.max(1, Math.min(100, m.tier ?? 1));
   const nx = dx / (dist || 1);
   const nz = dz / (dist || 1);
   const sx = -nz;
   const sz = nx;
-  const strafe = Math.sin(m.age * 4.6) * 3.4;
+  const strafe = Math.sin(m.age * (4.6 + lv * 0.018)) * (3.4 + lv * 0.018);
+  const speed = st.speed + (lv - 1) * 0.046;
   let close = 0;
-  if (dist > 1.2) close = st.speed;
+  if (dist > 1.2) close = speed;
   else if (dist < 0.85) close = -2.6;
   m.vx = nx * close + sx * strafe;
   m.vz = nz * close + sz * strafe;
   m.vy -= 28 * dt;
-  if (dist < 3.4 && m.vy <= 0.05 && m.age % 0.85 < dt * 2.2) m.vy = 8.5;
+  if (dist < 3.4 && m.vy <= 0.05 && m.age % Math.max(0.45, 0.85 - lv * 0.003) < dt * 2.2) m.vy = 7.1;
   m.x += m.vx * dt;
   if (collides(world, m)) {
     m.y += 0.55;
@@ -628,23 +730,24 @@ function tickDuelist(
     m.vy = 0;
   }
   m.blocking = dist < 2.2 && dist > 1.15 && Math.sin(m.age * 1.6) > 0.55;
-  if (m.hp < 12 && m.age % 3.2 < dt * 2) m.hp = Math.min(m.max, m.hp + 4);
+  const heal = Math.max(0, 4 - lv * 0.035);
+  if (heal > 0.2 && m.hp < m.max * 0.6 && m.age % 3.2 < dt * 2) m.hp = Math.min(m.max, m.hp + heal);
   m.mesh.position.set(m.x, m.y, m.z);
   m.mesh.rotation.y = m.yaw;
-  swingLimbs(m.mesh, m.age, 14, 0.7);
+  swingLimbs(m.mesh, m.age, 14 + lv * 0.04, 0.7);
   const dy = Math.abs(player.y + 0.9 - (m.y + 0.9));
   if (dist < 3.1 && dy < 2.4 && (!m.cooldown || m.cooldown <= 0)) {
     const crit = m.vy < -0.12;
-    const dmg = st.dmg * (crit ? 1.5 : 1);
-    if (onHitPlayer) onHitPlayer(m, dmg, crit ? 10 : 7.5);
+    const dmg = (st.dmg + (lv - 1) * 0.22) * (crit ? 1.5 : 1);
+    if (onHitPlayer) onHitPlayer(m, dmg, crit ? 3.1 : 2.2);
     else player.hurtBy(dmg, "duelist");
-    m.cooldown = 0.55;
+    m.cooldown = Math.max(0.26, 0.55 - (lv - 1) * 0.0024);
   }
   void dist3;
 }
 
 function collides(world: World, m: Mob): boolean {
-  const w = m.kind === "dragon" ? 2 : m.kind === "golem" || m.kind === "ravager" || m.kind === "warden" ? 0.7 : m.kind === "hoglin" ? 0.6 : 0.4;
+  const w = m.kind === "dragon" || m.kind === "wither_storm" ? 2 : m.kind === "golem" || m.kind === "ravager" || m.kind === "warden" ? 0.7 : m.kind === "hoglin" ? 0.6 : 0.4;
   const h =
     m.kind === "enderman" || m.kind === "warden"
       ? 2.8
@@ -681,9 +784,17 @@ export function hitMob(
     let dealt = dmg;
     if (best.blocking) dealt *= 0.35;
     best.hp -= dealt;
+    best.lastHurt = 1.8;
+    if (!best.hostile && (best.kind === "wolf" || best.kind === "bee" || best.kind === "polar_bear" || best.kind === "llama" || best.kind === "goat")) {
+      best.hostile = true;
+      best.ai = "chase";
+    } else if (!best.hostile && best.hp < best.max * 0.6) {
+      best.ai = "flee";
+      best.aiT = 2.4;
+    }
     if (kb) {
       best.vx += kb.x;
-      best.vy += kb.y;
+      best.vy = Math.min(3.6, best.vy + Math.min(1.15, kb.y));
       best.vz += kb.z;
     }
     best.mesh.traverse((o) => {

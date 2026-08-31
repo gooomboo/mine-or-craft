@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { animateAtlas, getSharedAtlas, type Atlas } from "./atlas";
-import { BLOCKS, COBBLE, CRAFTING_TABLE, END_PORTAL, FIRE, FURNACE, LAVA, NETHER_PORTAL, OBSIDIAN, WATER } from "./blocks";
+import { BLOCKS, COMMAND_BLOCK, CRAFTING_TABLE, END_PORTAL, FIRE, FURNACE, LAVA, NETHER_PORTAL, OBSIDIAN, WATER, isFluid, registerCustomBlock } from "./blocks";
 import { GameAudio } from "./audio";
 import { findSpawn, strongholdChunk, biomeAtIndex } from "./gen";
 import { Input } from "./input";
@@ -14,15 +14,11 @@ import {
   BOW,
   ARROW,
   ENDER_PEARL,
-  WATER_BUCKET,
   COOKED_BEEF,
   DIAMOND_HELM,
   DIAMOND_CHEST,
   DIAMOND_LEGS,
   DIAMOND_BOOTS,
-  DIAMOND_AXE,
-  LAVA_BUCKET,
-  FISHING_ROD,
   IRON_SWORD,
   STONE_SWORD,
   STONE_AXE,
@@ -37,16 +33,33 @@ import {
   LEATHER_BOOTS,
   WOOD_PICK,
   IRON_PICK,
+  EYE_OF_ENDER,
+  isBoatItem,
+  isPotionItem,
+  POTION_NIGHT,
+  POTION_SPEED,
+  POTION_FIRE,
+  POTION_HEAL,
+  POTION_STRENGTH,
+  POTION_WATER,
+  POTION_LEAP,
+  POTION_REGEN,
+  POTION_INVIS,
+  SPLASH_HARM,
+  CHORUS_FRUIT,
+  MACE,
+  WIND_CHARGE,
+  BUCKET,
 } from "./items";
-import { ARENA_BOT, ARENA_SPAWN, isArena } from "./arenas";
-import { ADV_BY_ID } from "./advancements";
-import { disposeMob, hitMob, spawnMob, trySpawn, updateMobs, type Mob } from "./mobs";
-import { addHeld, addHumanoid, buildViewArm, fillHeld, heldKind, hexNum, swingLimbs } from "./models";
-import { SKIN_PRESETS } from "./skins";
+import { ARENA_BOT, ARENA_SPAWN, duelStats, isArena } from "./arenas";
+import { ADV_BY_ID, ADVANCEMENTS } from "./advancements";
+import { disposeMob, hitMob, spawnMob, trySpawn, updateMobs, type Mob, type MobKind } from "./mobs";
+import { addHeld, addSkinnedHumanoid, buildViewArm, fillHeld, heldKind, makeBoatMesh, swingLimbs } from "./models";
+import { resolveSkin } from "./skins";
 import { Player } from "./player";
 import { voxelRay } from "./raycast";
 import { saveChunks, savePlayer } from "./save";
-import { CHUNK_W, type Dim, type GameMode, type PlayerSave, type Settings, type WorldMeta } from "./types";
+import { CHUNK_W, SEA_LEVEL, type Dim, type GameMode, type PlayerSave, type Settings, type WorldMeta } from "./types";
 import { World } from "./world";
 import { useApp, type HudSnap, type Overlay } from "@/store/app-store";
 
@@ -98,11 +111,20 @@ export class Engine {
   spawnTimer = 0;
   fluidTimer = 0;
   fireTimer = 0;
+  gravTimer = 0;
+  playXpT = 0;
+  playXpBatch = 0;
+  scriptScore = 0;
+  modScripts: { when: string; every: number; do: { op: string; id?: number; count?: number; text?: string; kind?: string; value?: number }[]; t: number }[] = [];
+  studio = { fly: false, god: false, fullbright: false, speed: false, freeze: false };
   saveTimer = 0;
   afk = 0;
   wraith: Mob | null = null;
   dragon: Mob | null = null;
+  storm: Mob | null = null;
   killedDragon = false;
+  killedStorm = false;
+  endPortalPlaced = false;
   chat: string[] = [];
   toast = "";
   toastT = 0;
@@ -118,6 +140,9 @@ export class Engine {
   camPunch = 0;
   wasOnGround = true;
   dualKills = 0;
+  dualLevel = 1;
+  deadLatch = false;
+  botSpawnGen = 0;
   hitFlash = 0;
   moveR = new THREE.Vector3();
   hitstop = 0;
@@ -142,6 +167,26 @@ export class Engine {
     exponent: { value: number };
   };
   rainGeo: THREE.BufferGeometry | null = null;
+  boats: {
+    x: number;
+    y: number;
+    z: number;
+    yaw: number;
+    vx: number;
+    vz: number;
+    vy: number;
+    mesh: THREE.Group;
+    occupied: boolean;
+    tint: number;
+  }[] = [];
+  modRules: {
+    keepInventory?: boolean;
+    doMobSpawning?: boolean;
+    pvp?: boolean;
+    mobGriefing?: boolean;
+    doDaylightCycle?: boolean;
+  } = {};
+  modAi: { default?: Mob["ai"]; aggression?: number; strafe?: boolean; flee?: boolean } = {};
 
   constructor(canvas: HTMLCanvasElement, meta: WorldMeta, settings: Settings, hooks: EngineHooks) {
     this.canvas = canvas;
@@ -159,7 +204,7 @@ export class Engine {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = settings.brightness;
-    this.renderer.shadowMap.enabled = settings.shadows && settings.graphics === "fabulous";
+    this.renderer.shadowMap.enabled = settings.shadows && (settings.graphics === "fabulous" || settings.graphics === "rtx") && !settings.optimized;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.renderer.autoClear = true;
     this.scene = new THREE.Scene();
@@ -185,7 +230,7 @@ export class Engine {
     this.world = new World(this.scene, this.atlas, meta.seed);
     this.world.arena = meta.arena ?? null;
     this.world.setFancyWater(settings.fancyWater);
-    this.world.setShadows(settings.shadows && settings.graphics === "fabulous");
+    this.world.setShadows(settings.shadows && (settings.graphics === "fabulous" || settings.graphics === "rtx") && !settings.optimized);
     this.player = new Player();
     this.player.mode = meta.mode;
     this.player.autoJump = settings.autoJump;
@@ -197,6 +242,7 @@ export class Engine {
     this.input.sneakToggle = settings.sneakToggle;
     this.input.sprintToggle = settings.sprintToggle;
     this.input.touchLookSens = settings.touchLookSens;
+    this.input.binds = { ...settings.binds };
     this.audio = new GameAudio();
     this.audio.volumes.master = settings.volumeMaster;
     this.audio.volumes.sfx = settings.volumeSfx;
@@ -256,17 +302,7 @@ export class Engine {
     this.scene.add(this.camera);
 
     this.playerBody = new THREE.Group();
-    const skinId = useApp.getState().profile.skin;
-    const skin =
-      SKIN_PRESETS.find((s) => s.id === skinId) ?? SKIN_PRESETS[0]!;
-    addHumanoid(this.playerBody, {
-      skin: hexNum(skin.skin),
-      shirt: hexNum(skin.shirt),
-      pants: hexNum(skin.pants),
-      hair: hexNum(skin.hair),
-      shoes: 0x1a1a1a,
-      eyes: 0x1a2a4a,
-    });
+    addSkinnedHumanoid(this.playerBody, resolveSkin(useApp.getState().profile.skin));
     addHeld(this.playerBody, "none");
     this.playerBody.visible = false;
     this.scene.add(this.playerBody);
@@ -344,7 +380,7 @@ export class Engine {
 
   async boot(save: PlayerSave | null, edits: Map<string, Uint16Array>) {
     this.world.edits = edits;
-    let spawn = findSpawn(this.meta.seed, this.world.noises);
+    let spawn = findSpawn(this.meta.seed, this.world.noises, this.meta.spawnBiome);
     if (isArena(this.meta.arena)) {
       const s = ARENA_SPAWN[this.meta.arena];
       spawn = { x: s.x, y: s.y, z: s.z };
@@ -369,6 +405,7 @@ export class Engine {
       this.worldTime = save.time;
       this.weather = save.weather;
       this.killedDragon = save.killedDragon;
+      this.killedStorm = !!save.killedStorm;
       this.dim = save.dim;
       this.world.dim = save.dim;
     } else {
@@ -399,10 +436,15 @@ export class Engine {
         this.player.z = s.z;
         this.worldTime = DAY_LEN * 0.48;
       } else {
-        this.player.y = this.world.highestSolid(this.player.x, this.player.z) + 2;
+        const safe = this.world.findSafeSpawn(this.player.x, this.player.z);
+        this.player.x = safe.x;
+        this.player.y = safe.y;
+        this.player.z = safe.z;
+        this.meta.spawn = { x: safe.x, y: safe.y, z: safe.z };
       }
     }
     this.applyDimVisuals();
+    if (this.meta.modJson && !isArena(this.meta.arena)) this.applyModJson();
     if (isArena(this.meta.arena)) {
       const s = ARENA_SPAWN[this.meta.arena];
       this.worldTime = DAY_LEN * 0.42;
@@ -411,18 +453,16 @@ export class Engine {
       this.player.z = s.z;
       this.player.difficulty = "hard";
       this.settings.difficulty = "hard";
-      this.giveArenaKit(!!save);
+      this.giveArenaKit(this.meta.arena === "duel" ? false : !!save);
       this.applyModJson();
       this.player.yaw = s.yaw;
       this.player.pitch = 0;
       this.sun.intensity = 1.45;
       this.hemi.intensity = 0.9;
-      const b = ARENA_BOT[this.meta.arena];
-      const botY = Math.max(b.y, this.world.highestSolid(b.x, b.z) + 1);
-      const bot = spawnMob("duelist", b.x, botY, b.z, this.scene);
-      this.mobs.push(bot);
+      this.dualLevel = Math.max(1, Math.min(100, useApp.getState().profile.dualLevel || 1));
+      this.spawnDuelBot();
       const labels: Record<string, string> = {
-        duel: "DUAL — fight with sword, shield, and golden apples.",
+        duel: "DUAL — 100 levels. Combat only. No building.",
         bedwars: "BED WARS — protect your bed. Break theirs.",
         skywars: "SKY WARS — loot the islands. Don't fall.",
         ctf: "CAPTURE THE FLAG — steal the enemy banner.",
@@ -491,17 +531,10 @@ export class Engine {
       ];
     } else {
       this.player.give(DIAMOND_SWORD, 1);
-      this.player.give(DIAMOND_AXE, 1);
       this.player.give(GOLDEN_APPLE, 8);
       this.player.give(BOW, 1);
       this.player.give(ARROW, 32);
-      this.player.give(ENDER_PEARL, 16);
-      this.player.give(COBBLE, 64);
-      this.player.give(WATER_BUCKET, 1);
-      this.player.give(LAVA_BUCKET, 1);
-      this.player.give(FISHING_ROD, 1);
       this.player.give(COOKED_BEEF, 16);
-      this.player.give(FLINT_STEEL, 1);
       this.player.offhand = { id: SHIELD, count: 1 };
       this.player.armor = [
         { id: DIAMOND_HELM, count: 1 },
@@ -527,6 +560,26 @@ export class Engine {
         offhand?: number;
         maxHealth?: number;
         keepInventory?: boolean;
+        pvp?: boolean;
+        gamerules?: {
+          keepInventory?: boolean;
+          doMobSpawning?: boolean;
+          pvp?: boolean;
+          mobGriefing?: boolean;
+          doDaylightCycle?: boolean;
+        };
+        ai?: { default?: Mob["ai"]; aggression?: number; strafe?: boolean; flee?: boolean };
+        mobs?: { kind: string; ai?: Mob["ai"]; hostile?: boolean; x?: number; y?: number; z?: number; offset?: number[] }[];
+        scripts?: { when: string; every?: number; do: { op: string; id?: number; count?: number; text?: string; kind?: string; value?: number }[] }[];
+        commands?: string[];
+        nbt?: { noAI?: boolean; invulnerable?: boolean; customName?: string };
+        textures?: Record<string, string>;
+        customBlocks?: { slot: number; name: string; tint: number; pixels: number[] }[];
+        sounds?: { name: string; dataUrl: string }[];
+        bosses?: { kind: string; name: string; hp: number }[];
+        spawnBiome?: string;
+        jsonRaw?: string;
+        allowCheats?: boolean;
       };
       if (Array.isArray(mod.kit) && mod.kit.length) {
         this.player.inventory = Array.from({ length: 36 }, () => null);
@@ -539,39 +592,148 @@ export class Engine {
       }
       if (mod.offhand) this.player.offhand = { id: mod.offhand, count: 1 };
       if (mod.maxHealth && mod.maxHealth > 0) this.player.health = Math.min(20, mod.maxHealth);
+      this.modRules = { keepInventory: !!mod.keepInventory, pvp: mod.pvp !== false, ...(mod.gamerules ?? {}) };
+      this.modAi = mod.ai ?? {};
+      if (Array.isArray(mod.mobs)) {
+        for (const spec of mod.mobs) {
+          const kind = (spec.kind === "iron_golem" ? "golem" : spec.kind) as MobKind;
+          const ox = spec.offset?.[0] ?? 0;
+          const oy = spec.offset?.[1] ?? 0;
+          const oz = spec.offset?.[2] ?? 0;
+          const x = spec.x ?? this.player.x + ox;
+          const z = spec.z ?? this.player.z + oz;
+          const y = spec.y ?? this.world.highestSolid(x, z) + 1 + oy;
+          try {
+            const m = spawnMob(kind, x, y, z, this.scene);
+            if (spec.ai) m.ai = spec.ai;
+            else if (this.modAi.default) m.ai = this.modAi.default;
+            if (spec.hostile != null) m.hostile = spec.hostile;
+            this.mobs.push(m);
+          } catch {
+            /* unknown kind */
+          }
+        }
+      }
+      if (mod.allowCheats) this.meta.cheats = true;
+      if (Array.isArray(mod.customBlocks)) {
+        for (const cb of mod.customBlocks) {
+          const b = registerCustomBlock(cb.slot, cb.name, cb.tint);
+          if (cb.pixels?.length === 256) this.atlas.paintPixels(b.tex, cb.pixels);
+        }
+      }
+      if (mod.textures) {
+        const keyToId: Record<string, number> = { grass: 1, stone: 3, dirt: 2, oak_log: 8, sand: 5, netherrack: 30, water: 6, oak_planks: 19, cobble: 18, glass: 43 };
+        for (const [k, hex] of Object.entries(mod.textures)) {
+          const id = keyToId[k];
+          if (!id || !hex) continue;
+          const n = parseInt(hex.replace("#", ""), 16);
+          if (!Number.isFinite(n)) continue;
+          const def = BLOCKS[id];
+          if (def) {
+            def.tint = n;
+            def.tintTop = n;
+          }
+        }
+      }
+      if (Array.isArray(mod.commands)) {
+        for (const line of mod.commands) {
+          const t = line.trim();
+          if (t.startsWith("/")) this.cheat(t);
+        }
+      }
+      if (Array.isArray(mod.bosses)) {
+        for (const b of mod.bosses) {
+          try {
+            const m = spawnMob(b.kind as MobKind, this.player.x + 12, this.player.y + 8, this.player.z + 12, this.scene);
+            m.hp = b.hp || m.hp;
+            m.max = m.hp;
+            this.mobs.push(m);
+          } catch {
+            /* */
+          }
+        }
+      }
       this.dressPlayer(!!this.player.armor[1]);
+      if (Array.isArray(mod.scripts)) {
+        this.modScripts = mod.scripts.map((s) => ({
+          when: s.when,
+          every: Math.max(2, s.every || 8),
+          do: s.do ?? [],
+          t: 0,
+        }));
+        this.runScripts("start");
+      }
+      this.toastMsg("Modded rules loaded — bots have free will.");
     } catch {
       this.toastMsg("Server snippet had a JSON error.");
     }
   }
 
-  dressPlayer(armored: boolean) {
-    const skinId = useApp.getState().profile.skin;
-    const skin = SKIN_PRESETS.find((s) => s.id === skinId) ?? SKIN_PRESETS[0]!;
+  spawnDuelBot() {
+    const arena = isArena(this.meta.arena) ? this.meta.arena : "duel";
+    const b = ARENA_BOT[arena];
+    const y = b.y;
+    const bot = spawnMob("duelist", b.x, y, b.z, this.scene);
+    const st = duelStats(this.dualLevel);
+    bot.tier = st.level;
+    bot.max = st.hp;
+    bot.hp = st.hp;
+    this.mobs.push(bot);
+  }
+
+  resetDuelBot() {
+    this.botSpawnGen++;
+    for (const m of this.mobs) {
+      if (m.kind === "duelist") disposeMob(m, this.scene);
+    }
+    this.mobs = this.mobs.filter((m) => m.kind !== "duelist");
+    this.spawnDuelBot();
+  }
+
+  respawnArena() {
+    this.deadLatch = false;
+    this.player.health = 20;
+    this.player.hunger = 20;
+    this.player.absorption = 0;
+    this.player.vx = 0;
+    this.player.vy = 0;
+    this.player.vz = 0;
+    if (isArena(this.meta.arena)) {
+      const s = ARENA_SPAWN[this.meta.arena];
+      this.player.x = s.x;
+      this.player.y = s.y;
+      this.player.z = s.z;
+      this.player.yaw = s.yaw;
+      this.player.pitch = 0;
+      this.giveArenaKit(false);
+      if (this.meta.arena === "duel") this.resetDuelBot();
+    } else {
+      const safe = this.world.findSafeSpawn(this.meta.spawn.x, this.meta.spawn.z);
+      this.player.x = safe.x;
+      this.player.y = safe.y;
+      this.player.z = safe.z;
+    }
+    this.setOverlay("none");
+  }
+
+  dressPlayer(_armored: boolean) {
+    const skin = resolveSkin(useApp.getState().profile.skin);
     while (this.playerBody.children.length) this.playerBody.remove(this.playerBody.children[0]!);
-    addHumanoid(this.playerBody, {
-      skin: hexNum(skin.skin),
-      shirt: armored ? 0x5adce6 : hexNum(skin.shirt),
-      pants: armored ? 0x3aa8b0 : hexNum(skin.pants),
-      hair: hexNum(skin.hair),
-      shoes: armored ? 0x5adce6 : 0x1a1a1a,
-      eyes: 0x1a2a4a,
-      helm: armored ? 0x5adce6 : undefined,
-      chest: armored ? 0x5adce6 : undefined,
-      boots: armored ? 0x5adce6 : undefined,
-    });
+    addSkinnedHumanoid(this.playerBody, skin);
     const kind = heldKind(this.player.selected?.id ?? 0);
     addHeld(this.playerBody, kind, getDef(this.player.selected?.id ?? 0)?.tint ?? 0x5adce6);
   }
 
   applyDimVisuals() {
     if (this.dim === "nether") {
-      this.fog.color.set(0x3a0c0c);
-      this.skyUniforms.topColor.value.set(0x2a0808);
-      this.skyUniforms.bottomColor.value.set(0x4a1810);
-      this.hemi.color.set(0xaa3333);
-      this.hemi.groundColor.set(0x220808);
-      this.sun.intensity = 0.28;
+      this.fog.color.set(0x6a2420);
+      this.skyUniforms.topColor.value.set(0x4a1814);
+      this.skyUniforms.bottomColor.value.set(0x8a3a28);
+      this.hemi.color.set(0xff8866);
+      this.hemi.groundColor.set(0x4a1810);
+      this.hemi.intensity = 1.15;
+      this.sun.intensity = 0.95;
+      this.sun.color.set(0xffccaa);
       this.sunMesh.visible = false;
       this.moonMesh.visible = false;
     } else if (this.dim === "end") {
@@ -584,7 +746,7 @@ export class Engine {
       this.sunMesh.visible = false;
       this.moonMesh.visible = this.settings.sunMoon;
       if (!this.dragon && !this.killedDragon) {
-        this.dragon = spawnMob("dragon", 20, 64, 0, this.scene);
+        this.dragon = spawnMob("dragon", 20, 64, 8, this.scene);
         this.mobs.push(this.dragon);
       }
     } else {
@@ -621,7 +783,7 @@ export class Engine {
 
   setOverlay(o: Overlay) {
     this.overlay = o;
-    this.setPaused(o !== "none" && o !== "locked");
+    this.setPaused(o !== "none" && o !== "locked" && o !== "studio");
     this.hooks.onOverlay(o);
   }
 
@@ -655,6 +817,12 @@ export class Engine {
     } else {
       this.afk += dt;
     }
+    if (this.afk > 1200 && this.overlay === "none") {
+      this.afk = 0;
+      this.toastMsg("Away for 20 minutes — game paused. Worlds stay saved.");
+      this.setOverlay("pause");
+      return;
+    }
 
     if (input.justPause) {
       this.setOverlay(this.overlay === "pause" ? "none" : "pause");
@@ -677,6 +845,14 @@ export class Engine {
     if (input.justDebug) {
       useApp.getState().setSettings({ showFps: !this.settings.showFps, showCoords: !this.settings.showCoords });
     }
+    if (input.justStudio) {
+      if (this.meta.arena || useApp.getState().multiplayer) {
+        this.toastMsg("Studio Tools only work in local worlds.");
+      } else {
+        this.setOverlay(this.overlay === "studio" ? "none" : "studio");
+      }
+      return;
+    }
 
     while (this.acc >= step) {
       this.fixed(step, input);
@@ -691,8 +867,20 @@ export class Engine {
   };
 
   private fixed(dt: number, input: ReturnType<Input["poll"]>) {
-    this.worldTime += dt;
+    this.worldTime += this.studio.freeze ? 0 : dt;
     this.player.update(dt, input, this.world);
+    this.tickBoats(dt, input);
+    if (this.meta.arena === "duel") {
+      this.player.x = Math.max(-23.2, Math.min(23.2, this.player.x));
+      this.player.z = Math.max(-23.2, Math.min(23.2, this.player.z));
+      if (this.player.y < 31) {
+        const s = ARENA_SPAWN.duel;
+        this.player.x = s.x;
+        this.player.y = s.y;
+        this.player.z = s.z;
+        this.player.hurtBy(6, "void");
+      }
+    }
     this.world.streamAround(this.player.x, this.player.z, this.settings.renderDistance, this.dim);
     this.world.processBuilds(this.settings.graphics === "fast" ? 4 : 8, this.settings.ao);
 
@@ -708,19 +896,46 @@ export class Engine {
       this.targeting = "";
     }
 
-    if (input.justAttack) this.tryMelee(look);
-    if (input.attack && hit && this.player.mode !== "creative") {
-      this.mine(hit, dt);
-    } else if (input.justAttack && hit && this.player.mode === "creative") {
-      this.breakBlock(hit.x, hit.y, hit.z);
-    } else if (!input.attack) {
-      this.breaking = 0;
-      this.player.miningPos = null;
-    }
-    if (input.justUse) {
-      if (this.player.selected?.id === ENDER_PEARL) this.throwPearl(look);
-      else if (hit) this.use(hit);
-      else this.player.eat();
+    const spec = this.player.mode === "spectator";
+    if (!spec) {
+      if (input.justAttack) this.tryMelee(look);
+      if (input.attack && hit && this.player.mode !== "creative" && this.player.mode !== "adventure") {
+        this.mine(hit, dt);
+      } else if (input.justAttack && hit && this.player.mode === "creative") {
+        this.breakBlock(hit.x, hit.y, hit.z);
+      } else if (!input.attack) {
+        this.breaking = 0;
+        this.player.miningPos = null;
+      }
+      if (input.justUse) {
+        const heldId = this.player.selected?.id ?? 0;
+        if (isBoatItem(heldId)) {
+          if (hit) this.placeBoat(hit.x + hit.nx + 0.5, hit.y + hit.ny, hit.z + hit.nz + 0.5, heldId);
+          else {
+            const f = this.player.forward();
+            this.placeBoat(this.player.x + f.x * 2, this.player.y, this.player.z + f.z * 2, heldId);
+          }
+        } else if (this.tryMountBoat()) {
+          this.toastMsg("Boarded. Jump to hop out. WASD to row.");
+        } else if (isPotionItem(heldId)) {
+          this.drinkPotion(heldId);
+        } else if (heldId === WIND_CHARGE) {
+          this.player.vy = 11;
+          this.player.onGround = false;
+          if (this.player.mode !== "creative") this.player.takeSelected(1);
+          this.audio.jump();
+        } else if (heldId === ENDER_PEARL) this.throwPearl(look);
+        else if (hit) {
+          this.use(hit);
+          this.runScripts("use");
+        }
+        else if (this.player.eat()) {
+          this.audio.eat();
+          if (heldId === CHORUS_FRUIT) this.chorusWarp();
+        }
+      }
+    } else {
+      this.highlight.visible = false;
     }
 
     if (this.player.onGround && !this.wasOnGround) {
@@ -758,9 +973,14 @@ export class Engine {
 
     this.tickMobs(dt);
     this.tickFluids(dt);
+    this.tickGravity(dt);
     this.tickFire(dt);
     this.tickPortal(dt);
+    this.maybeSpawnEndPortal();
     this.tickWraith(dt);
+    this.tickPlayXp(dt);
+    this.tickScripts(dt);
+    this.applyStudio();
     if (this.dim === "overworld" && Math.random() < dt * 0.01) {
       this.weather = this.weather > 0 ? 0 : Math.random() < 0.35 ? 1 : 0;
     }
@@ -775,8 +995,22 @@ export class Engine {
     }
 
     if (this.player.health <= 0) {
-      this.hooks.onDeath();
-      this.setOverlay("dead");
+      if (this.player.tryPopTotem()) {
+        this.burst(this.player.x, this.player.y + 1, this.player.z, 0xf0c832);
+        this.audio.levelup();
+        this.toastMsg("Totem of Undying!");
+        this.deadLatch = false;
+      } else if (!this.deadLatch) {
+        this.deadLatch = true;
+        this.player.riding = false;
+        this.audio.death();
+        if (this.meta.arena === "duel") this.resetDuelBot();
+        this.hooks.onDeath();
+        this.runScripts("death");
+        this.setOverlay("dead");
+      }
+    } else {
+      this.deadLatch = false;
     }
     if (this.player.hurt > 0.35 && this.player.lastHurtAmt > 0.4) {
       this.trauma = Math.min(1, this.trauma + Math.min(0.45, this.player.lastHurtAmt * 0.12));
@@ -794,6 +1028,7 @@ export class Engine {
   }
 
   private mine(hit: { x: number; y: number; z: number }, dt: number) {
+    if (this.meta.arena === "duel" || this.player.mode === "adventure" || this.player.mode === "spectator") return;
     const id = this.world.getBlock(hit.x, hit.y, hit.z);
     const def = BLOCKS[id];
     if (!def || def.hardness < 0) return;
@@ -812,6 +1047,7 @@ export class Engine {
   }
 
   private breakBlock(x: number, y: number, z: number) {
+    if (this.meta.arena === "duel" || this.player.mode === "adventure" || this.player.mode === "spectator") return;
     const id = this.world.getBlock(x, y, z);
     const def = BLOCKS[id];
     if (!def || def.hardness < 0) return;
@@ -838,7 +1074,16 @@ export class Engine {
       this.setOverlay("furnace");
       return;
     }
+    if (id === COMMAND_BLOCK) {
+      this.setOverlay("chat");
+      this.toastMsg("Command block — type /give, /tp, /nether, /end…");
+      return;
+    }
     const held = this.player.selected;
+    if (held?.id === EYE_OF_ENDER) {
+      this.tryLightEndPortal(hit.x, hit.y, hit.z);
+      return;
+    }
     if (held?.id === FLINT_STEEL) {
       this.world.setBlock(hit.x + hit.nx, hit.y + hit.ny, hit.z + hit.nz, FIRE);
       this.tryLightPortal(hit.x + hit.nx, hit.y + hit.ny, hit.z + hit.nz);
@@ -846,12 +1091,17 @@ export class Engine {
       return;
     }
     if (this.player.eat()) {
-      this.audio.pop();
+      this.audio.eat();
+      if (held?.id === CHORUS_FRUIT) this.chorusWarp();
       return;
     }
     const def = getDef(held?.id ?? 0);
     const placeId = def?.place ?? (held && held.id < ITEM_BASE ? held.id : 0);
     if (placeId && placeId > 0) {
+      if (this.meta.arena === "duel" || this.player.mode === "adventure") {
+        this.toastMsg(this.meta.arena === "duel" ? "No building in Dual." : "Adventure — no placing.");
+        return;
+      }
       const px = hit.x + hit.nx;
       const py = hit.y + hit.ny;
       const pz = hit.z + hit.nz;
@@ -865,6 +1115,22 @@ export class Engine {
         pz + 1 > this.player.z - pw / 2 &&
         pz < this.player.z + pw / 2;
       if (overlaps) return;
+      const key = `${def?.name ?? ""} ${BLOCKS[placeId]?.key ?? ""} ${BLOCKS[placeId]?.name ?? ""}`.toLowerCase();
+      if ((key.includes("bed") || key.includes("_bed")) && (this.dim === "nether" || this.dim === "end")) {
+        this.explode(px + 0.5, py + 0.5, pz + 0.5, 3.2);
+        this.toastMsg("Beds explode here.");
+        if (this.player.mode !== "creative") this.player.takeSelected(1);
+        return;
+      }
+      if (placeId === WATER && this.dim === "nether") {
+        this.toastMsg("Water evaporates in the Nether.");
+        this.audio.place();
+        if (this.player.mode !== "creative") {
+          this.player.takeSelected(1);
+          this.player.give(BUCKET, 1);
+        }
+        return;
+      }
       this.world.setBlock(px, py, pz, placeId);
       this.audio.place();
       if (this.player.mode !== "creative") this.player.takeSelected(1);
@@ -872,73 +1138,96 @@ export class Engine {
     }
   }
 
-  private tryLightPortal(x: number, y: number, z: number) {
-    const isObs = (xx: number, yy: number, zz: number) => this.world.getBlock(xx, yy, zz) === OBSIDIAN;
-    for (const axis of ["x", "z"] as const) {
-      for (let oy = -1; oy >= -5; oy--) {
-        const by = y + oy;
-        let w = 0;
-        if (axis === "x") {
-          while (isObs(x - w - 1, by, z) === false && w < 6) {
-            /* scan empty */
-            if (this.world.getBlock(x - w - 1, by, z) !== 0 && this.world.getBlock(x - w - 1, by, z) !== FIRE) break;
-            w++;
+  private tryLightPortal(fx: number, fy: number, fz: number) {
+    const isObs = (x: number, y: number, z: number) => this.world.getBlock(x, y, z) === OBSIDIAN;
+    const innerOk = (x: number, y: number, z: number) => {
+      const id = this.world.getBlock(x, y, z);
+      return id === 0 || id === FIRE || id === NETHER_PORTAL;
+    };
+    const tryAxis = (axis: "x" | "z") => {
+      for (let y0 = fy - 4; y0 <= fy; y0++) {
+        for (let o = -3; o <= 1; o++) {
+          const x0 = axis === "x" ? fx + o : fx;
+          const z0 = axis === "z" ? fz + o : fz;
+          let ok = true;
+          for (let i = -1; i <= 2; i++) {
+            if (axis === "x") {
+              if (!isObs(x0 + i, y0 - 1, z0) || !isObs(x0 + i, y0 + 3, z0)) ok = false;
+            } else if (!isObs(x0, y0 - 1, z0 + i) || !isObs(x0, y0 + 3, z0 + i)) ok = false;
           }
+          for (let dy = 0; dy < 3; dy++) {
+            if (axis === "x") {
+              if (!isObs(x0 - 1, y0 + dy, z0) || !isObs(x0 + 2, y0 + dy, z0)) ok = false;
+              if (!innerOk(x0, y0 + dy, z0) || !innerOk(x0 + 1, y0 + dy, z0)) ok = false;
+            } else {
+              if (!isObs(x0, y0 + dy, z0 - 1) || !isObs(x0, y0 + dy, z0 + 2)) ok = false;
+              if (!innerOk(x0, y0 + dy, z0) || !innerOk(x0, y0 + dy, z0 + 1)) ok = false;
+            }
+          }
+          if (!ok) continue;
+          for (let i = 0; i < 2; i++) {
+            for (let dy = 0; dy < 3; dy++) {
+              if (axis === "x") this.world.setBlock(x0 + i, y0 + dy, z0, NETHER_PORTAL);
+              else this.world.setBlock(x0, y0 + dy, z0 + i, NETHER_PORTAL);
+            }
+          }
+          this.audio.portal();
+          this.toastMsg("A portal rips open.");
+          this.grant("we_need_to_go_deeper");
+          return true;
         }
       }
-    }
-    // 4x5 inner portal: check a small frame around the fire
-    for (let dx = -2; dx <= 2; dx++) {
-      for (let dy = -1; dy <= 4; dy++) {
-        const fx = x + dx;
-        const fy = y + dy;
-        const edge = dx === -2 || dx === 2 || dy === -1 || dy === 4;
-        if (edge && !isObs(fx, fy, z) && Math.abs(dx) + Math.abs(dy) > 0) {
-          /* not a complete x-axis frame */
-        }
+      return false;
+    };
+    if (!tryAxis("x")) tryAxis("z");
+  }
+
+  private tryLightEndPortal(x: number, y: number, z: number) {
+    const frame = this.world.getBlock(x, y, z);
+    if (frame !== 59 && frame !== END_PORTAL) return;
+    let frames = 0;
+    for (let dx = -3; dx <= 3; dx++) {
+      for (let dz = -3; dz <= 3; dz++) {
+        const id = this.world.getBlock(x + dx, y, z + dz);
+        if (id === 59) frames++;
       }
     }
-    let okX = true;
-    for (let dx = -1; dx <= 2; dx++) {
-      if (!isObs(x + dx, y - 1, z) || !isObs(x + dx, y + 3, z)) okX = false;
+    if (frames < 8) {
+      this.toastMsg("Need a ring of End portal frames.");
+      return;
     }
-    for (let dy = 0; dy < 3; dy++) {
-      if (!isObs(x - 1, y + dy, z) || !isObs(x + 2, y + dy, z)) okX = false;
+    this.world.setBlock(x, y, z, END_PORTAL);
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        const id = this.world.getBlock(x + dx, y, z + dz);
+        if (id === 0 || id === 59) this.world.setBlock(x + dx, y, z + dz, END_PORTAL);
+      }
     }
-    if (okX) {
-      for (let dx = 0; dx < 2; dx++) for (let dy = 0; dy < 3; dy++) this.world.setBlock(x + dx, y + dy, z, NETHER_PORTAL);
-      this.audio.portal();
-      this.toastMsg("A portal rips open.");
-      this.grant("we_need_to_go_deeper");
-    }
-    let okZ = true;
-    for (let dz = -1; dz <= 2; dz++) {
-      if (!isObs(x, y - 1, z + dz) || !isObs(x, y + 3, z + dz)) okZ = false;
-    }
-    for (let dy = 0; dy < 3; dy++) {
-      if (!isObs(x, y + dy, z - 1) || !isObs(x, y + dy, z + 2)) okZ = false;
-    }
-    if (okZ) {
-      for (let dz = 0; dz < 2; dz++) for (let dy = 0; dy < 3; dy++) this.world.setBlock(x, y + dy, z + dz, NETHER_PORTAL);
-      this.audio.portal();
-      this.toastMsg("A portal rips open.");
-    }
+    if (this.player.mode !== "creative") this.player.takeSelected(1);
+    this.audio.portal();
+    this.toastMsg("The End portal ignites.");
+    this.grant("the_end");
   }
 
   private tickPortal(dt: number) {
+    if (this.meta.arena === "duel") {
+      this.portalT = 0;
+      return;
+    }
     const id = this.world.getBlock(Math.floor(this.player.x), Math.floor(this.player.y + 0.5), Math.floor(this.player.z));
     if (id === NETHER_PORTAL) {
       this.portalT += dt;
-      if (this.portalT > 3) {
+      if (this.portalT > 1.6) {
         this.portalT = 0;
         if (this.dim === "overworld") this.changeDim("nether");
-        else this.changeDim("overworld");
+        else if (this.dim === "nether") this.changeDim("overworld");
       }
     } else if (id === END_PORTAL) {
       this.portalT += dt;
-      if (this.portalT > 1.5) {
+      if (this.portalT > 1.2) {
         this.portalT = 0;
-        this.changeDim("end");
+        if (this.dim !== "end") this.changeDim("end");
+        else this.changeDim("overworld");
       }
     } else this.portalT = 0;
   }
@@ -951,20 +1240,28 @@ export class Engine {
     if (d === "nether") {
       this.player.x = this.player.x / 8;
       this.player.z = this.player.z / 8;
-      this.player.y = 40;
     } else if (d === "overworld" && from === "nether") {
       this.player.x *= 8;
       this.player.z *= 8;
-      this.player.y = Math.max(this.player.y, 50);
     } else if (d === "end") {
-      this.player.x = 0;
-      this.player.z = 0;
-      this.player.y = 52;
+      this.player.x = 8.5;
+      this.player.z = 8.5;
     }
     for (const m of this.mobs) if (m.kind !== "wraith") disposeMob(m, this.scene);
     this.mobs = this.mobs.filter((m) => m.kind === "wraith");
     this.dragon = null;
     this.world.streamAround(this.player.x, this.player.z, this.settings.renderDistance, d);
+    this.world.processBuilds(80, this.settings.ao);
+    for (const b of this.boats) this.scene.remove(b.mesh);
+    this.boats = [];
+    this.player.riding = false;
+    const prefer = d === "nether" ? 40 : d === "end" ? 49 : 56;
+    const minY = d === "nether" ? 8 : d === "end" ? 20 : 42;
+    const safe = this.world.findSafeSpawn(this.player.x, this.player.z, prefer, minY);
+    this.player.x = safe.x;
+    this.player.y = safe.y;
+    this.player.z = safe.z;
+    this.player.vy = 0;
     this.applyDimVisuals();
     this.audio.portal();
     this.toastMsg(d === "nether" ? "The Nether" : d === "end" ? "The End" : "Overworld");
@@ -972,10 +1269,14 @@ export class Engine {
 
   private tickMobs(dt: number) {
     this.spawnTimer += dt;
-    if (this.spawnTimer > 4 && !this.meta.arena) {
+    const allowSpawn = this.modRules.doMobSpawning !== false;
+    if (this.spawnTimer > 4 && !this.meta.arena && allowSpawn) {
       this.spawnTimer = 0;
       const m = trySpawn(this.scene, this.world, this.player, this.mobs, this.isNight(), this.meta.seed, this.settings.difficulty);
-      if (m) this.mobs.push(m);
+      if (m) {
+        if (this.modAi.default) m.ai = this.modAi.default;
+        this.mobs.push(m);
+      }
     }
     updateMobs(
       this.mobs,
@@ -987,27 +1288,41 @@ export class Engine {
       this.player.flying && this.player.mode === "creative",
       (m, dmg, kb) => {
         this.player.hurtBy(dmg, m.kind);
-        this.player.applyKnockback(this.player.x - m.x, this.player.z - m.z, kb);
+        this.player.applyKnockback(this.player.x - m.x, this.player.z - m.z, kb, this.meta.arena === "duel" || m.kind === "duelist");
         this.trauma = Math.min(1, this.trauma + 0.28);
         this.camPunch = 0.18;
         this.hitFlash = 0.22;
-        if (m.kind === "duelist") this.toastMsg(this.player.blocking ? "Blocked!" : "Hit!");
+        if (m.kind === "duelist") {
+          this.audio.shield();
+          this.toastMsg(this.player.blocking ? "Blocked!" : "Hit!");
+        }
       },
+      this.modAi,
     );
     for (const m of this.mobs) {
       if (!m.dead && m.hp <= 0) this.killMob(m);
     }
     if (this.dragon && this.dragon.hp <= 0 && !this.killedDragon) {
       this.killedDragon = true;
-      this.hooks.onWin();
       this.addXp(2500);
       this.grant("free_the_end");
-      this.toastMsg("The Void Wyrm falls. +2500 XP");
-      if (this.wraith) {
-        this.killMob(this.wraith);
-        this.wraith = null;
-        this.toastMsg("The Pale One fades with the Wyrm.");
-      }
+      this.toastMsg("The Void Wyrm falls. Returning home…");
+      const bed = this.meta.spawn;
+      this.changeDim("overworld");
+      const safe = this.world.findSafeSpawn(bed.x, bed.z);
+      this.player.x = safe.x;
+      this.player.y = safe.y;
+      this.player.z = safe.z;
+      this.hooks.onOverlay("storm");
+      this.setOverlay("storm");
+    }
+    if (this.storm && this.storm.hp <= 0 && !this.killedStorm) {
+      this.killedStorm = true;
+      this.addXp(4000);
+      this.grant("the_end_again");
+      this.awardClear();
+      this.hooks.onWin();
+      this.toastMsg("The Wither Storm is gone. You cleared the story.");
     }
   }
 
@@ -1036,14 +1351,22 @@ export class Engine {
         for (let x = px - 6; x <= px + 6; x++) {
           const id = this.world.getBlock(x, y, z);
           if (id !== WATER && id !== LAVA) continue;
-          if (this.world.getBlock(x, y - 1, z) === 0) this.world.setBlock(x, y - 1, z, id);
-          else {
-            for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
-              if (this.world.getBlock(x + dx, y, z + dz) === 0) {
-                this.world.setBlock(x + dx, y, z + dz, id);
-                break;
-              }
-            }
+          const below = this.world.getBlock(x, y - 1, z);
+          if (below === 0) {
+            if (id === LAVA) continue;
+            this.world.setBlock(x, y - 1, z, id);
+            continue;
+          }
+          if (id === LAVA) continue;
+          const support = below !== 0 && !isFluid(below);
+          if (!support) continue;
+          for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            const nx = x + dx, nz = z + dz;
+            if (this.world.getBlock(nx, y, nz) !== 0) continue;
+            const under = this.world.getBlock(nx, y - 1, nz);
+            if (under === 0 || isFluid(under)) continue;
+            this.world.setBlock(nx, y, nz, WATER);
+            break;
           }
           if (id === WATER) {
             for (const [dx, dy, dz] of [[1, 0, 0], [-1, 0, 0], [0, 0, 1], [0, 0, -1], [0, -1, 0]]) {
@@ -1055,6 +1378,157 @@ export class Engine {
         }
       }
     }
+    for (let y = py - 3; y <= py + 3; y++) {
+      for (let z = pz - 5; z <= pz + 5; z++) {
+        for (let x = px - 5; x <= px + 5; x++) {
+          if (this.world.getBlock(x, y, z) !== 0) continue;
+          let sources = 0;
+          for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+            if (this.world.getBlock(x + dx, y, z + dz) === WATER) sources++;
+          }
+          if (sources >= 2 && this.world.getBlock(x, y - 1, z) !== 0) this.world.setBlock(x, y, z, WATER);
+        }
+      }
+    }
+  }
+
+  private tickGravity(dt: number) {
+    this.gravTimer += dt;
+    if (this.gravTimer < 0.1) return;
+    this.gravTimer = 0;
+    const px = Math.floor(this.player.x);
+    const pz = Math.floor(this.player.z);
+    const py = Math.floor(this.player.y);
+    for (let y = py - 6; y <= py + 8; y++) {
+      for (let z = pz - 7; z <= pz + 7; z++) {
+        for (let x = px - 7; x <= px + 7; x++) {
+          const id = this.world.getBlock(x, y, z);
+          if (!id || !BLOCKS[id]?.gravity) continue;
+          const below = this.world.getBlock(x, y - 1, z);
+          const bdef = BLOCKS[below];
+          const open = below === 0 || isFluid(below) || bdef?.shape === "torch" || bdef?.shape === "cross";
+          if (!open) continue;
+          this.world.setBlock(x, y, z, 0);
+          if (below === 0 || isFluid(below)) {
+            this.world.setBlock(x, y - 1, z, id);
+            const hits =
+              x + 1 > this.player.x - 0.3 &&
+              x < this.player.x + 0.3 &&
+              y - 1 + 1 > this.player.y &&
+              y - 1 < this.player.y + 1.8 &&
+              z + 1 > this.player.z - 0.3 &&
+              z < this.player.z + 0.3;
+            if (hits) this.player.hurtBy(id === 172 ? 6 : 2, "fall");
+          } else if (this.player.mode !== "creative") {
+            this.player.give(id, 1);
+          }
+        }
+      }
+    }
+  }
+
+  private tickPlayXp(dt: number) {
+    if (this.overlay !== "none" || this.paused) return;
+    this.playXpT += dt;
+    if (this.playXpT < 8) return;
+    this.playXpT = 0;
+    this.addXp(1);
+    this.playXpBatch++;
+    const p = useApp.getState().profile;
+    useApp.getState().setProfile({ playSeconds: (p.playSeconds ?? 0) + 8 });
+    if (this.playXpBatch % 6 === 0) this.toastMsg("+6 XP for time in world");
+  }
+
+  private runScripts(when: string) {
+    for (const s of this.modScripts) {
+      if (s.when === when) this.runOps(s.do);
+    }
+  }
+
+  private runOps(ops: { op: string; id?: number; count?: number; text?: string; kind?: string; value?: number }[]) {
+    for (const op of ops) {
+      if (op.op === "say" && op.text) this.toastMsg(op.text);
+      else if (op.op === "give" && op.id) this.player.give(op.id, Math.max(1, op.count || 1));
+      else if (op.op === "spawn" && op.kind) {
+        try {
+          const ang = Math.random() * Math.PI * 2;
+          const m = spawnMob(op.kind as MobKind, this.player.x + Math.cos(ang) * 6, this.player.y, this.player.z + Math.sin(ang) * 6, this.scene);
+          this.mobs.push(m);
+        } catch {
+          /* */
+        }
+      } else if (op.op === "health") this.player.health = Math.max(1, Math.min(20, op.count || 20));
+      else if (op.op === "time") this.worldTime = (op.value ?? 1) ? DAY_LEN * 0.28 : DAY_LEN * 0.75;
+      else if (op.op === "xp") this.addXp(Math.max(1, op.count || 1));
+      else if (op.op === "pvp") this.modRules.pvp = (op.value ?? 1) !== 0;
+      else if (op.op === "keep") this.modRules.keepInventory = (op.value ?? 1) !== 0;
+      else if (op.op === "score") {
+        this.scriptScore++;
+        this.toastMsg(`Score ${this.scriptScore}`);
+      } else if (op.op === "win") {
+        this.addXp(40);
+        this.hooks.onWin();
+        this.setOverlay("credits");
+      } else if (op.op === "tellraw" || op.op === "title") this.toastMsg(op.text || this.meta.modJson?.slice(0, 40) || "!");
+      else if (op.op === "tp" && op.text) {
+        const n = op.text.split(/[ ,]+/).map(Number);
+        if (n.length >= 3 && n.every(Number.isFinite)) {
+          this.player.x = n[0]!;
+          this.player.y = n[1]!;
+          this.player.z = n[2]!;
+        }
+      } else if (op.op === "gamemode" && op.text) {
+        const m = op.text as GameMode;
+        if (m === "survival" || m === "creative" || m === "adventure" || m === "spectator") this.player.mode = m;
+      } else if (op.op === "weather") this.weather = (op.value ?? 1) ? 1 : 0;
+      else if (op.op === "setblock" && op.id) {
+        this.world.setBlock(Math.floor(this.player.x), Math.floor(this.player.y), Math.floor(this.player.z + 2), op.id);
+      } else if (op.op === "fill" && op.id) {
+        const bx = Math.floor(this.player.x);
+        const by = Math.floor(this.player.y);
+        const bz = Math.floor(this.player.z);
+        for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) this.world.setBlock(bx + dx, by, bz + dz + 3, op.id);
+      } else if (op.op === "boss" && op.kind) {
+        try {
+          const m = spawnMob(op.kind as MobKind, this.player.x + 14, this.player.y + 8, this.player.z, this.scene);
+          this.mobs.push(m);
+        } catch {
+          /* */
+        }
+      } else if (op.op === "kill") {
+        for (const m of this.mobs) if (m.kind !== "wraith") m.hp = 0;
+      } else if (op.op === "spawnpoint") {
+        this.meta.spawn = { x: this.player.x, y: this.player.y, z: this.player.z };
+      } else if (op.op === "particle") this.burst(this.player.x, this.player.y + 1, this.player.z, 0x5adce6);
+      else if (op.op === "sound") this.audio.craft();
+      else if (op.op === "gamerule" && op.text) {
+        if (op.text.includes("keepInventory")) this.modRules.keepInventory = true;
+        if (op.text.includes("pvp")) this.modRules.pvp = true;
+      }
+    }
+  }
+
+  private tickScripts(dt: number) {
+    for (const s of this.modScripts) {
+      if (s.when !== "tick") continue;
+      s.t += dt;
+      if (s.t >= s.every) {
+        s.t = 0;
+        this.runOps(s.do);
+      }
+    }
+  }
+
+  applyStudio() {
+    const on = !this.meta.arena && !useApp.getState().multiplayer;
+    if (!on) {
+      this.studio = { fly: false, god: false, fullbright: false, speed: false, freeze: false };
+      return;
+    }
+    if (this.studio.fly && this.player.mode !== "spectator") this.player.flying = true;
+    this.player.invincible = this.studio.god || this.player.mode === "creative" || this.player.mode === "spectator";
+    if (this.studio.speed) this.player.speedT = Math.max(this.player.speedT, 2);
+    if (this.studio.fullbright) this.player.nightT = Math.max(this.player.nightT, 2);
   }
 
   private tickFire(dt: number) {
@@ -1081,8 +1555,156 @@ export class Engine {
     }
   }
 
+  placeBoat(x: number, y: number, z: number, id: number) {
+    if (this.player.mode === "adventure" || this.player.mode === "spectator") return;
+    const tint = getDef(id)?.tint ?? 0xb8945a;
+    const mesh = makeBoatMesh(tint);
+    const by = this.world.highestSolid(x, z) + 0.12;
+    const waterHere = isFluid(this.world.getBlock(Math.floor(x), Math.floor(by), Math.floor(z))) ||
+      isFluid(this.world.getBlock(Math.floor(x), Math.floor(y), Math.floor(z)));
+    const fy = waterHere ? Math.max(y, by) : by;
+    mesh.position.set(x, fy, z);
+    this.scene.add(mesh);
+    this.boats.push({ x, y: fy, z, yaw: this.player.yaw, vx: 0, vz: 0, vy: 0, mesh, occupied: false, tint });
+    if (this.player.mode !== "creative") this.player.takeSelected(1);
+    this.audio.place();
+    this.toastMsg("Boat placed. Use it to board.");
+  }
+
+  tryMountBoat(): boolean {
+    if (this.player.riding) return false;
+    for (const b of this.boats) {
+      if (Math.hypot(this.player.x - b.x, this.player.z - b.z) < 1.85 && Math.abs(this.player.y - b.y) < 2.2) {
+        this.player.riding = true;
+        b.occupied = true;
+        this.player.x = b.x;
+        this.player.y = b.y + 0.4;
+        this.player.z = b.z;
+        this.player.vx = 0;
+        this.player.vz = 0;
+        this.player.vy = 0;
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private tickBoats(dt: number, input: ReturnType<Input["poll"]>) {
+    for (const b of this.boats) {
+      if (b.occupied && !this.player.riding) {
+        b.occupied = false;
+        this.player.vy = 7.6;
+        this.player.onGround = false;
+      }
+      const bx = Math.floor(b.x);
+      const bz = Math.floor(b.z);
+      const feet = this.world.getBlock(bx, Math.floor(b.y), bz);
+      const below = this.world.getBlock(bx, Math.floor(b.y - 0.3), bz);
+      const inWater = isFluid(feet) || isFluid(below) || BLOCKS[below]?.fluid === 1 || BLOCKS[feet]?.fluid === 1;
+      if (b.occupied && this.player.riding) {
+        const steer = -input.moveX;
+        const speed = Math.hypot(b.vx, b.vz);
+        const factor = Math.max(0.22, Math.min(1, speed / 3.4));
+        b.yaw += steer * 2.35 * factor * dt;
+        const fx = -Math.sin(b.yaw);
+        const fz = -Math.cos(b.yaw);
+        const max = inWater ? 8.4 : 1.35;
+        const acc = inWater ? 11 : 2.4;
+        b.vx += fx * input.moveY * acc * dt;
+        b.vz += fz * input.moveY * acc * dt;
+        const sp = Math.hypot(b.vx, b.vz);
+        if (sp > max) {
+          b.vx *= max / sp;
+          b.vz *= max / sp;
+        }
+        b.vx *= inWater ? Math.max(0, 1 - 0.55 * dt) : Math.max(0, 1 - 3.2 * dt);
+        b.vz *= inWater ? Math.max(0, 1 - 0.55 * dt) : Math.max(0, 1 - 3.2 * dt);
+        if (!this.player.riding) {
+          b.occupied = false;
+          this.player.vy = 6.2;
+        }
+      } else {
+        b.occupied = false;
+        b.vx *= Math.max(0, 1 - 1.8 * dt);
+        b.vz *= Math.max(0, 1 - 1.8 * dt);
+      }
+      b.x += b.vx * dt;
+      b.z += b.vz * dt;
+      const ground = this.world.highestSolid(b.x, b.z);
+      let surf = ground + 0.08;
+      let water = false;
+      for (let y = Math.floor(ground) + 1; y < Math.floor(ground) + 10; y++) {
+        if (isFluid(this.world.getBlock(Math.floor(b.x), y, Math.floor(b.z)))) {
+          water = true;
+          surf = y + 0.12;
+        } else break;
+      }
+      if (water) {
+        b.y += (surf - b.y) * Math.min(1, 8 * dt);
+        b.vy = 0;
+      } else {
+        b.vy -= 22 * dt;
+        b.y += b.vy * dt;
+        if (b.y < ground + 0.08) {
+          b.y = ground + 0.08;
+          b.vy = 0;
+        }
+      }
+      if (b.occupied && this.player.riding) {
+        this.player.x = b.x;
+        this.player.y = b.y + 0.42;
+        this.player.z = b.z;
+        this.player.vx = b.vx;
+        this.player.vz = b.vz;
+        this.player.vy = 0;
+        this.player.onGround = true;
+        this.player.inWater = false;
+      }
+      b.mesh.position.set(b.x, b.y, b.z);
+      b.mesh.rotation.y = b.yaw;
+      b.mesh.rotation.z = Math.sin(b.x * 0.4 + this.worldTime * 2) * (inWater ? 0.04 : 0);
+    }
+  }
+
+  drinkPotion(id: number) {
+    if (id === POTION_NIGHT) this.player.nightT = 60;
+    if (id === POTION_SPEED) this.player.speedT = 30;
+    if (id === POTION_FIRE) this.player.fireResT = 45;
+    if (id === POTION_HEAL) this.player.health = Math.min(20, this.player.health + 8);
+    if (id === POTION_STRENGTH) this.player.strengthT = 30;
+    if (id === POTION_WATER) this.player.waterBreathT = 45;
+    if (id === POTION_LEAP) this.player.jumpBoostT = 30;
+    if (id === POTION_REGEN) this.player.regenT = 12;
+    if (id === POTION_INVIS) this.player.invisT = 20;
+    if (id === SPLASH_HARM) {
+      this.player.hurtBy(6, "potion");
+      for (const m of this.mobs) {
+        if (Math.hypot(m.x - this.player.x, m.z - this.player.z) < 4) m.hp -= 8;
+      }
+    }
+    if (this.player.mode !== "creative") this.player.takeSelected(1);
+    this.player.give(10133, 1);
+    this.audio.eat();
+    this.toastMsg(getDef(id)?.name ?? "Potion");
+  }
+
+  chorusWarp() {
+    const ang = Math.random() * Math.PI * 2;
+    const dist = 6 + Math.random() * 10;
+    this.player.x += Math.cos(ang) * dist;
+    this.player.z += Math.sin(ang) * dist;
+    const safe = this.world.findSafeSpawn(this.player.x, this.player.z);
+    this.player.x = safe.x;
+    this.player.y = safe.y;
+    this.player.z = safe.z;
+    this.burst(this.player.x, this.player.y + 1, this.player.z, 0x8a5aa0);
+    this.audio.portal();
+    this.toastMsg("Warped.");
+  }
+
   explode(x: number, y: number, z: number, r: number) {
     this.audio.explode();
+    if (this.modRules.mobGriefing !== false) {
     for (let dy = -r; dy <= r; dy++) {
       for (let dz = -r; dz <= r; dz++) {
         for (let dx = -r; dx <= r; dx++) {
@@ -1092,6 +1714,7 @@ export class Engine {
           if (id && BLOCKS[id]?.hardness >= 0 && BLOCKS[id]!.hardness < 20) this.world.setBlock(bx, by, bz, 0);
         }
       }
+    }
     }
     const d = Math.hypot(this.player.x - x, this.player.y - y, this.player.z - z);
     if (d < r + 1) {
@@ -1105,6 +1728,8 @@ export class Engine {
     m.dead = true;
     disposeMob(m, this.scene);
     this.addXp(m.hostile ? 8 : 2);
+    this.player.kills++;
+    this.runScripts("kill");
     if (m.kind === "creeper") this.grant("monster_hunter");
     if (m.kind === "pig" || m.kind === "cow") this.player.give(m.kind === "cow" ? 10050 : 10052, 1);
     if (m.kind === "chicken") this.player.give(10054, 1);
@@ -1113,20 +1738,40 @@ export class Engine {
     if (m.kind === "enderman") this.player.give(10061, 1);
     if (m.kind === "duelist") {
       this.dualKills++;
-      this.player.kills++;
       this.grant("dual_first_blood");
-      this.toastMsg(`Kill ${this.dualKills} — next fighter incoming.`);
+      const next = Math.min(100, this.dualLevel + 1);
+      if (this.dualLevel >= 100) {
+        this.grant("dual_century");
+        this.toastMsg("Dual Master — level 100 cleared.");
+        this.audio.levelup();
+      } else {
+        this.dualLevel = next;
+        const p = useApp.getState().profile;
+        useApp.getState().setProfile({
+          dualLevel: this.dualLevel,
+          dualBest: Math.max(p.dualBest || 1, this.dualLevel),
+        });
+        if (this.dualLevel >= 10) this.grant("dual_ten");
+        if (this.dualLevel >= 50) this.grant("dual_fifty");
+        this.audio.levelup();
+        this.toastMsg(`Level ${this.dualLevel} — the next fighter is faster.`);
+      }
+      this.player.health = 20;
+      this.player.hunger = 20;
+      this.giveArenaKit(false);
+      const gen = ++this.botSpawnGen;
       setTimeout(() => {
-        if (!this.running) return;
-        const b = isArena(this.meta.arena) ? ARENA_BOT[this.meta.arena] : { x: 0.5, y: 33, z: 16.5 };
-        const bot = spawnMob("duelist", b.x, Math.max(b.y, this.world.highestSolid(b.x, b.z) + 1), b.z, this.scene);
-        this.mobs.push(bot);
-      }, 1600);
+        if (!this.running || gen !== this.botSpawnGen) return;
+        this.resetDuelBot();
+      }, 1400);
     }
   }
 
   attackDamage() {
-    return getDef(this.player.selected?.id ?? 0)?.damage ?? 1;
+    let d = getDef(this.player.selected?.id ?? 0)?.damage ?? 1;
+    if (this.player.strengthT > 0) d += 3;
+    if (this.player.selected?.id === MACE && this.player.vy < -0.4) d += Math.min(12, Math.abs(this.player.vy) * 1.6);
+    return d;
   }
 
   tryMelee(dir: { x: number; y: number; z: number }) {
@@ -1135,11 +1780,12 @@ export class Engine {
     const factor = 0.2 + 0.8 * cd * cd;
     const crit = !this.player.onGround && this.player.vy < -0.15 && cd > 0.85;
     const dmg = this.attackDamage() * factor * (crit ? 1.5 : 1);
-    const sprintKb = this.player.sprinting ? 4.2 : 0;
+    const sprintKb = this.player.sprinting ? 2.4 : 0;
+    const duel = this.meta.arena === "duel";
     const kb = {
-      x: dir.x * (6.2 + sprintKb) * factor,
-      y: crit ? 5.2 : 3.4,
-      z: dir.z * (6.2 + sprintKb) * factor,
+      x: dir.x * ((duel ? 2.6 : 4.4) + sprintKb) * factor,
+      y: duel ? 0.45 : crit ? 1.35 : 0.85,
+      z: dir.z * ((duel ? 2.6 : 4.4) + sprintKb) * factor,
     };
     const mob = hitMob(
       this.mobs,
@@ -1150,15 +1796,11 @@ export class Engine {
       kb,
     );
     this.player.attackCd = this.player.attackCdMax;
+    this.audio.swing();
     const tool = getDef(this.player.selected?.id ?? 0);
     if (tool?.tool === "axe" && mob?.blocking) {
       mob.blocking = false;
       this.toastMsg("Shield disabled!");
-    }
-    if (this.player.selected?.id === FISHING_ROD && mob) {
-      mob.vx += dir.x * 5.5;
-      mob.vz += dir.z * 5.5;
-      mob.vy += 2.2;
     }
     if (mob) {
       this.audio.hit();
@@ -1172,6 +1814,10 @@ export class Engine {
   }
 
   throwPearl(dir: { x: number; y: number; z: number }) {
+    if (this.meta.arena === "duel") {
+      this.toastMsg("No pearls in Dual.");
+      return;
+    }
     const s = this.player.selected;
     if (!s || s.id !== ENDER_PEARL) return;
     if (this.player.mode !== "creative") this.player.takeSelected(1);
@@ -1194,7 +1840,7 @@ export class Engine {
     this.player.z = z;
     this.player.hurtBy(2.5, "pearl");
     this.burst(x, y, z, 0x1a6a5a);
-    this.audio.portal();
+    this.audio.pearl();
   }
 
   addXp(n: number) {
@@ -1216,6 +1862,50 @@ export class Engine {
     useApp.getState().setProfile({ unlocked: [...p.unlocked, id], xp: p.xp + bonus });
     this.toastMsg("Advancement: " + (def?.name ?? id.replace(/_/g, " ")));
     this.audio.craft();
+    this.maybeSpawnEndPortal();
+  }
+
+  awardClear() {
+    const p = useApp.getState().profile;
+    const stars = Math.min(100, (p.stars ?? 0) + 1);
+    let diamonds = p.diamonds ?? 0;
+    let leftover = stars;
+    if (stars > 0 && stars % 5 === 0) diamonds = Math.min(100, diamonds + 1);
+    leftover = stars;
+    useApp.getState().setProfile({ stars, diamonds, clears: (p.clears ?? 0) + 1 });
+    this.toastMsg(`Story clear · ${stars}/100 ★ · ${diamonds}/100 ◆`);
+    void leftover;
+  }
+
+  beginStorm() {
+    if (this.storm || this.killedStorm || this.meta.arena) return;
+    const s = spawnMob("wither_storm", this.player.x + 18, this.player.y + 10, this.player.z + 8, this.scene);
+    this.storm = s;
+    this.mobs.push(s);
+    this.toastMsg("The Wither Storm grows. Break the command block in its chest.");
+    this.setOverlay("none");
+  }
+
+  private maybeSpawnEndPortal() {
+    if (this.endPortalPlaced || this.dim !== "overworld" || this.meta.arena) return;
+    const unlocked = useApp.getState().profile.unlocked;
+    const need = ADVANCEMENTS.filter((a) => !["the_end", "free_the_end", "the_end_again"].includes(a.id));
+    if (need.filter((a) => unlocked.includes(a.id)).length < need.length) return;
+    this.endPortalPlaced = true;
+    const ang = (this.meta.seed % 360) * (Math.PI / 180);
+    const tx = Math.floor(this.meta.spawn.x + Math.cos(ang) * 64);
+    const tz = Math.floor(this.meta.spawn.z + Math.sin(ang) * 64);
+    const ty = Math.max(SEA_LEVEL + 2, this.world.highestSolid(tx, tz) + 1);
+    for (let dx = -2; dx <= 2; dx++) {
+      for (let dz = -2; dz <= 2; dz++) {
+        const edge = Math.abs(dx) === 2 || Math.abs(dz) === 2;
+        const corner = Math.abs(dx) === 2 && Math.abs(dz) === 2;
+        if (corner) continue;
+        if (edge) this.world.setBlock(tx + dx, ty, tz + dz, 59);
+        else this.world.setBlock(tx + dx, ty, tz + dz, END_PORTAL);
+      }
+    }
+    this.toastMsg(`The End gate opened ~4 chunks out (${tx}, ${ty}, ${tz}).`);
   }
 
   toastMsg(m: string) {
@@ -1312,7 +2002,32 @@ export class Engine {
       this.stars.visible = this.settings.stars && this.dim === "end";
     }
     this.scene.fog = this.settings.fog ? this.fog : null;
-    this.fog.density = 0.016 / Math.max(2, this.settings.renderDistance);
+    if (this.dim === "nether") {
+      const cx = Math.floor(this.player.x);
+      const cz = Math.floor(this.player.z);
+      const ch = this.world.getChunk(Math.floor(cx / CHUNK_W), Math.floor(cz / CHUNK_W));
+      const lx = ((cx % CHUNK_W) + CHUNK_W) % CHUNK_W;
+      const lz = ((cz % CHUNK_W) + CHUNK_W) % CHUNK_W;
+      const bid = biomeAtIndex(ch?.data.biomes[lx + lz * CHUNK_W] ?? 28).id;
+      const fogCol: Record<string, number> = {
+        nether_wastes: 0x3a0c0c,
+        crimson_forest: 0x4a0818,
+        warped_forest: 0x082828,
+        soul_sand_valley: 0x1a3040,
+        basalt_deltas: 0x2a2a28,
+      };
+      this.fog.color.set(fogCol[bid] ?? 0x8a3a28);
+      this.fog.density = bid === "basalt_deltas" ? 0.012 : bid === "soul_sand_valley" ? 0.01 : 0.006;
+      this.hemi.intensity = 1.2;
+      this.sun.intensity = 0.9;
+    } else if (this.dim === "end") {
+      this.fog.color.set(0x100c18);
+      this.fog.density = 0.004;
+      this.hemi.intensity = 0.55;
+      this.sun.intensity = 0.32;
+    } else {
+      this.fog.density = 0.016 / Math.max(2, this.settings.renderDistance);
+    }
     this.sky.position.set(px, py, pz);
     this.stars.position.set(px, py, pz);
 
@@ -1332,7 +2047,7 @@ export class Engine {
 
     const mode = this.settings.cameraMode;
     const look = this.player.lookDir();
-    this.playerBody.visible = mode !== "first";
+    this.playerBody.visible = mode !== "first" && this.player.invisT <= 0 && this.player.mode !== "spectator";
     this.playerBody.position.set(this.player.x, this.player.y, this.player.z);
     this.playerBody.rotation.y = this.player.yaw;
     this.playerBody.scale.set(1 / this.player.squash, this.player.squash, 1 / this.player.squash);
@@ -1345,6 +2060,7 @@ export class Engine {
       const kind = heldKind(hid);
       const item = this.hand.userData.item as THREE.Group | undefined;
       if (item) fillHeld(item, kind, getDef(hid)?.tint ?? 0x5adce6);
+      this.dressPlayer(!!this.player.armor[1]);
     }
 
     if (mode === "first") {
@@ -1457,7 +2173,11 @@ export class Engine {
       dim: this.dim,
       mode: this.player.mode,
       targeting: this.targeting,
-      boss: this.dragon && !this.dragon.dead ? { name: "Void Wyrm", hp: this.dragon.hp, max: this.dragon.max } : undefined,
+      boss: this.storm && !this.storm.dead
+        ? { name: "Wither Storm", hp: this.storm.hp, max: this.storm.max }
+        : this.dragon && !this.dragon.dead
+          ? { name: "Void Wyrm", hp: this.dragon.hp, max: this.dragon.max }
+          : undefined,
       wraith: !!this.wraith && !this.wraith.dead,
       chat: this.chat.slice(-6),
       toast: this.toastT > 0 ? this.toast : "",
@@ -1471,6 +2191,7 @@ export class Engine {
       absorption: this.player.absorption,
       arena: this.meta.arena,
       kills: this.dualKills,
+      dualLevel: this.dualLevel,
       hitFlash: this.hitFlash,
       blocking: this.player.blocking,
     };
@@ -1486,6 +2207,7 @@ export class Engine {
     this.input.sneakToggle = s.sneakToggle;
     this.input.sprintToggle = s.sprintToggle;
     this.input.touchLookSens = s.touchLookSens;
+    this.input.binds = { ...s.binds };
     this.player.autoJump = s.autoJump;
     this.player.difficulty = s.difficulty;
     this.camera.fov = s.fov;
@@ -1494,9 +2216,10 @@ export class Engine {
     this.audio.volumes.sfx = s.volumeSfx;
     this.audio.volumes.music = s.volumeMusic;
     this.audio.applyVol();
-    this.renderer.toneMappingExposure = Math.max(0.35, Math.min(2.2, s.brightness));
+    this.renderer.toneMappingExposure = Math.max(0.35, Math.min(2.4, s.brightness * (s.graphics === "rtx" ? 1.12 : 1)));
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, s.pixelRatioCap || 1.5));
-    this.renderer.shadowMap.enabled = s.shadows && s.graphics === "fabulous";
+    this.renderer.shadowMap.enabled = s.shadows && (s.graphics === "fabulous" || s.graphics === "rtx") && !s.optimized;
+    this.renderer.toneMapping = s.graphics === "rtx" ? THREE.ACESFilmicToneMapping : THREE.NoToneMapping;
     this.sun.castShadow = this.renderer.shadowMap.enabled;
     this.world.setShadows(this.renderer.shadowMap.enabled);
     this.world.setFancyWater(s.fancyWater);
@@ -1529,6 +2252,7 @@ export class Engine {
       time: this.worldTime,
       weather: this.weather,
       killedDragon: this.killedDragon,
+      killedStorm: this.killedStorm,
       advancements: useApp.getState().profile.unlocked,
     };
     await savePlayer(this.meta.id, save);
@@ -1587,9 +2311,10 @@ export class Engine {
       return `Stronghold chunk ${s.cx}, ${s.cz}`;
     }
     if (c === "/home") {
-      this.player.x = this.meta.spawn.x;
-      this.player.y = this.meta.spawn.y;
-      this.player.z = this.meta.spawn.z;
+      const safe = this.world.findSafeSpawn(this.meta.spawn.x, this.meta.spawn.z);
+      this.player.x = safe.x;
+      this.player.y = safe.y;
+      this.player.z = safe.z;
       return "Returned to spawn.";
     }
     if (c === "/weather") {
@@ -1616,6 +2341,16 @@ export class Engine {
     if (c === "/overworld" || (c === "/dim" && p[1] === "overworld")) {
       this.changeDim("overworld");
       return "Overworld.";
+    }
+    if (c === "/setblock" && p.length >= 5) {
+      const x = Math.floor(Number(p[1]));
+      const y = Math.floor(Number(p[2]));
+      const z = Math.floor(Number(p[3]));
+      const id = Number(p[4]);
+      if (Number.isFinite(id) && id >= 0) {
+        this.world.setBlock(x, y, z, id);
+        return `Set ${x} ${y} ${z} to ${id}`;
+      }
     }
     return "Unknown command.";
   }

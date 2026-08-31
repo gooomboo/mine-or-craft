@@ -6,12 +6,27 @@ const SETTINGS_KEY = "moc.settings.v1";
 const DB = "mine-or-craft";
 const DB_VER = 1;
 
+export interface Friend {
+  name: string;
+  code: string;
+}
+
 export interface Profile {
   version: number;
   username: string;
   xp: number;
   skin: string;
   unlocked: string[];
+  dualLevel: number;
+  dualBest: number;
+  friends: Friend[];
+  ownedPacks: string[];
+  passUntil: number;
+  playSeconds: number;
+  guest: boolean;
+  stars: number;
+  diamonds: number;
+  clears: number;
 }
 
 export const DEFAULT_PROFILE: Profile = {
@@ -20,7 +35,93 @@ export const DEFAULT_PROFILE: Profile = {
   xp: 0,
   skin: "steve",
   unlocked: [],
+  dualLevel: 1,
+  dualBest: 1,
+  friends: [],
+  ownedPacks: [],
+  passUntil: 0,
+  playSeconds: 0,
+  guest: false,
+  stars: 0,
+  diamonds: 0,
+  clears: 0,
 };
+
+const SESSION_KEY = "moc.session.v1";
+const ACCOUNTS_KEY = "moc.accounts.v1";
+
+export function hashPass(s: string) {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 16777619);
+  return (h >>> 0).toString(16);
+}
+
+export function loadSession(): string | null {
+  try {
+    return localStorage.getItem(SESSION_KEY);
+  } catch {
+    return null;
+  }
+}
+
+export function saveSession(name: string | null) {
+  try {
+    if (name) localStorage.setItem(SESSION_KEY, name);
+    else localStorage.removeItem(SESSION_KEY);
+  } catch {
+    /* */
+  }
+}
+
+interface AccountRec {
+  pass: string;
+  profile: Profile;
+}
+
+function loadAccounts(): Record<string, AccountRec> {
+  try {
+    const raw = localStorage.getItem(ACCOUNTS_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, AccountRec>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function saveAccounts(a: Record<string, AccountRec>) {
+  try {
+    localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(a));
+  } catch {
+    /* */
+  }
+}
+
+export function registerAccount(username: string, password: string): { ok: boolean; msg: string; profile: Profile } {
+  const name = username.trim().slice(0, 16) || "Player";
+  const accounts = loadAccounts();
+  const key = name.toLowerCase();
+  if (accounts[key] && password && accounts[key]!.pass !== hashPass(password)) {
+    return { ok: false, msg: "Wrong password for that name.", profile: { ...DEFAULT_PROFILE, username: name } };
+  }
+  const existing = accounts[key];
+  const isGuest = !password;
+  const profile: Profile = existing
+    ? { ...DEFAULT_PROFILE, ...existing.profile, username: name, guest: existing.profile.guest && isGuest }
+    : { ...DEFAULT_PROFILE, username: name, guest: isGuest };
+  accounts[key] = { pass: password ? hashPass(password) : existing?.pass ?? "", profile };
+  accounts[key] = { pass: password ? hashPass(password) : existing?.pass ?? "", profile };
+  saveAccounts(accounts);
+  saveSession(name);
+  saveProfile(profile);
+  return { ok: true, msg: existing ? "Signed in." : "Account ready.", profile };
+}
+
+export function persistAccountProfile(profile: Profile) {
+  const accounts = loadAccounts();
+  const key = profile.username.toLowerCase();
+  const prev = accounts[key];
+  accounts[key] = { pass: prev?.pass ?? "", profile };
+  saveAccounts(accounts);
+}
 
 function idb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -203,6 +304,7 @@ export function blankPlayer(spawn: { x: number; y: number; z: number }, dim: Dim
     time: 0,
     weather: 0,
     killedDragon: false,
+    killedStorm: false,
     advancements: [],
   };
 }

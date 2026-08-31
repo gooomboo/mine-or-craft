@@ -201,8 +201,9 @@ export const OAK_FENCE = 197;
 export const OAK_GATE = 198;
 export const GLASS_PANE = 199;
 export const IRON_BARS = 200;
+export const COMMAND_BLOCK = 201;
 
-export const BLOCK_COUNT = 3200;
+export const BLOCK_COUNT = 30000;
 export const BLOCKS: BlockDef[] = new Array(BLOCK_COUNT);
 
 type Style =
@@ -422,6 +423,29 @@ function put(id: number, spec: Spec): BlockDef {
   return b;
 }
 
+export const CUSTOM_BLOCK_BASE = 28000;
+
+export function registerCustomBlock(slot: number, name: string, tint = 0x88aa44): BlockDef {
+  const id = CUSTOM_BLOCK_BASE + (slot % 64);
+  const tile = 820 + (slot % 64);
+  const b = def({
+    id,
+    key: `custom_${slot}`,
+    name: (name || `Custom ${slot + 1}`).slice(0, 24),
+    solid: true,
+    hardness: 1.2,
+    tool: "pickaxe",
+    tint,
+    tintTop: tint,
+    category: "building",
+    tex: tile,
+    texTop: tile,
+    texBottom: tile,
+  });
+  BLOCKS[id] = b;
+  return b;
+}
+
 function buildCatalog() {
   const named: Spec[] = [
     { key: "air", name: "Air", style: "air" },
@@ -484,7 +508,7 @@ function buildCatalog() {
     { key: "blackstone", name: "Blackstone", style: "stone", tint: 0x2a2a32 },
     { key: "shroomlight", name: "Shroomlight", style: "nether", tint: 0xf0a05a, light: 15 },
     { key: "end_portal_frame", name: "End Portal Frame", style: "end", tint: 0x3a6a4a, hardness: -1 },
-    { key: "dragon_egg", name: "Dragon Egg", style: "end", tint: 0x1a0a28, light: 1, hardness: 3 },
+    { key: "dragon_egg", name: "Dragon Egg", style: "end", tint: 0x1a0a28, light: 1, hardness: 3, gravity: true },
     { key: "deepslate", name: "Deepslate", style: "stone", tint: 0x4a4a52, hardness: 3, drops: DEEPSLATE },
     { key: "copper_ore", name: "Copper Ore", style: "ore", tint: 0xc86a3a, harvestLevel: 1 },
     { key: "amethyst", name: "Amethyst Block", style: "crystal", tint: 0x9a5ac8, light: 0 },
@@ -596,7 +620,7 @@ function buildCatalog() {
     { key: "barrel", name: "Barrel", style: "wood", tint: 0x6b5530 },
     { key: "smoker", name: "Smoker", style: "stone", tint: 0x5a5a5a },
     { key: "blast_furnace", name: "Blast Furnace", style: "stone", tint: 0x4a4a52 },
-    { key: "anvil", name: "Anvil", style: "metal", tint: 0x6a6a6a, hardness: 5 },
+    { key: "anvil", name: "Anvil", style: "metal", tint: 0x6a6a6a, hardness: 5, gravity: true },
     { key: "enchanting", name: "Enchanting Table", style: "end", tint: 0x4a2060, light: 7 },
     { key: "brewing", name: "Brewing Stand", style: "metal", tint: 0x6a6a6a, solid: false },
     { key: "cauldron", name: "Cauldron", style: "metal", tint: 0x3a3a3a },
@@ -625,6 +649,7 @@ function buildCatalog() {
     { key: "oak_gate", name: "Oak Fence Gate", style: "wood", transparent: true, tint: 0xb8945a },
     { key: "glass_pane", name: "Glass Pane", style: "glass", shape: "pane", tint: 0xc8e0f0 },
     { key: "iron_bars", name: "Iron Bars", style: "metal", shape: "pane", transparent: true, tint: 0x8a8a8a },
+    { key: "command_block", name: "Command Block", style: "metal", tint: 0xc46a32, hardness: -1, light: 4, category: "utility" },
   ];
 
   for (let i = 0; i < named.length; i++) put(i, named[i]!);
@@ -744,8 +769,8 @@ buildCatalog();
 
 export const BY_KEY = new Map<string, BlockDef>();
 for (let i = 0; i < BLOCK_COUNT; i++) {
-  const b = BLOCKS[i]!;
-  BY_KEY.set(b.key, b);
+  const b = BLOCKS[i];
+  if (b) BY_KEY.set(b.key, b);
 }
 
 export function isSolid(id: number): boolean {

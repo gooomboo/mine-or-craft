@@ -184,6 +184,90 @@ export const RECOVERY_COMPASS = 10147;
 export const ECHO_SHARD = 10148;
 export const DISC_FRAGMENT = 10149;
 export const MUSIC_DISC = 10150;
+export const BIRCH_BOAT = 10151;
+export const SPRUCE_BOAT = 10152;
+export const JUNGLE_BOAT = 10153;
+export const ACACIA_BOAT = 10154;
+export const DARK_OAK_BOAT = 10155;
+export const CHERRY_BOAT = 10156;
+export const MANGROVE_BOAT = 10157;
+export const BAMBOO_RAFT = 10158;
+export const HONEY_BOTTLE = 10159;
+export const SWEET_BERRIES = 10160;
+export const GLOW_BERRIES = 10161;
+export const CHORUS_FRUIT = 10162;
+export const GOLDEN_CARROT = 10163;
+export const ENCHANTED_APPLE = 10164;
+export const LEAD = 10165;
+export const GOAT_HORN = 10166;
+export const BRUSH = 10167;
+export const MACE = 10168;
+export const POTION_NIGHT = 10169;
+export const POTION_SPEED = 10170;
+export const POTION_FIRE = 10171;
+export const POTION_HEAL = 10172;
+export const POTION_STRENGTH = 10173;
+export const POTION_WATER = 10174;
+export const POTION_LEAP = 10175;
+export const POTION_REGEN = 10176;
+export const POTION_INVIS = 10177;
+export const SPLASH_HARM = 10178;
+export const HONEYCOMB = 10179;
+export const NETHER_WART_ITEM = 10180;
+export const RABBIT_FOOT = 10181;
+export const FERMENTED_EYE = 10182;
+export const GLISTERING_MELON = 10183;
+export const PUFFERFISH = 10184;
+export const COOKED_COD = 10185;
+export const COOKED_SALMON = 10186;
+export const RAW_COD = 10187;
+export const RAW_SALMON = 10188;
+export const TROPICAL_FISH = 10189;
+export const DRIED_KELP = 10190;
+export const SUSPICIOUS_STEW = 10191;
+export const RABBIT_STEW = 10192;
+export const BEETROOT_SOUP = 10193;
+export const MELON_SLICE = 10194;
+export const WIND_CHARGE = 10195;
+export const AMETHYST_SHARD = 10196;
+export const NETHERITE_SCRAP = 10197;
+export const COPPER_SCRAP = 10198;
+export const OMINOUS_BOTTLE = 10199;
+export const TRIAL_KEY = 10200;
+
+export const BOAT_IDS = new Set([
+  BOAT,
+  BIRCH_BOAT,
+  SPRUCE_BOAT,
+  JUNGLE_BOAT,
+  ACACIA_BOAT,
+  DARK_OAK_BOAT,
+  CHERRY_BOAT,
+  MANGROVE_BOAT,
+  BAMBOO_RAFT,
+]);
+
+export function isBoatItem(id: number) {
+  return BOAT_IDS.has(id);
+}
+
+export const POTION_IDS = new Set([
+  POTION_NIGHT,
+  POTION_SPEED,
+  POTION_FIRE,
+  POTION_HEAL,
+  POTION_STRENGTH,
+  POTION_WATER,
+  POTION_LEAP,
+  POTION_REGEN,
+  POTION_INVIS,
+  SPLASH_HARM,
+  OMINOUS_BOTTLE,
+]);
+
+export function isPotionItem(id: number) {
+  return POTION_IDS.has(id);
+}
 
 export const ITEMS: Map<number, ItemDef> = new Map();
 
@@ -379,6 +463,56 @@ stack(GLASS_BOTTLE, "glass_bottle", "Glass Bottle", 0xc8e0f0);
 item({ id: WATER_BOTTLE, key: "water_bottle", name: "Water Bottle", stack: 1, icon: 0, tint: 0x3a78c8 });
 item({ id: BOAT, key: "boat", name: "Oak Boat", stack: 1, icon: 0, tint: 0xb8945a });
 item({ id: MINECART, key: "minecart", name: "Minecart", stack: 1, icon: 0, tint: 0x6a6a6a });
+item({ id: BIRCH_BOAT, key: "birch_boat", name: "Birch Boat", stack: 1, icon: 0, tint: 0xe8d8a8 });
+item({ id: SPRUCE_BOAT, key: "spruce_boat", name: "Spruce Boat", stack: 1, icon: 0, tint: 0x5a3a22 });
+item({ id: JUNGLE_BOAT, key: "jungle_boat", name: "Jungle Boat", stack: 1, icon: 0, tint: 0x8a6230 });
+item({ id: ACACIA_BOAT, key: "acacia_boat", name: "Acacia Boat", stack: 1, icon: 0, tint: 0xc86a3a });
+item({ id: DARK_OAK_BOAT, key: "dark_oak_boat", name: "Dark Oak Boat", stack: 1, icon: 0, tint: 0x3a2418 });
+item({ id: CHERRY_BOAT, key: "cherry_boat", name: "Cherry Boat", stack: 1, icon: 0, tint: 0xd09090 });
+item({ id: MANGROVE_BOAT, key: "mangrove_boat", name: "Mangrove Boat", stack: 1, icon: 0, tint: 0x8a3a32 });
+item({ id: BAMBOO_RAFT, key: "bamboo_raft", name: "Bamboo Raft", stack: 1, icon: 0, tint: 0xc8d048 });
+food(HONEY_BOTTLE, "honey_bottle", "Honey Bottle", 6, 0xf0c832);
+food(SWEET_BERRIES, "sweet_berries", "Sweet Berries", 2, 0xc43030);
+food(GLOW_BERRIES, "glow_berries", "Glow Berries", 2, 0xe0a018);
+food(CHORUS_FRUIT, "chorus_fruit", "Chorus Fruit", 4, 0x8a5aa0);
+food(GOLDEN_CARROT, "golden_carrot", "Golden Carrot", 6, 0xf0c832);
+food(ENCHANTED_APPLE, "enchanted_apple", "Enchanted Golden Apple", 4, 0xf0e070);
+item({ id: LEAD, key: "lead", name: "Lead", stack: 64, icon: 0, tint: 0x8a6230 });
+item({ id: GOAT_HORN, key: "goat_horn", name: "Goat Horn", stack: 1, icon: 0, tint: 0xc8b08a });
+item({ id: BRUSH, key: "brush", name: "Brush", stack: 1, durability: 64, icon: 0, tint: 0xd0d4d8 });
+tool(MACE, "mace", "Mace", "sword", 0, 500, 12, 0x6a6a72);
+item({ id: POTION_NIGHT, key: "potion_night", name: "Potion of Night Vision", stack: 1, icon: 0, tint: 0x1a4a8a });
+item({ id: POTION_SPEED, key: "potion_speed", name: "Potion of Swiftness", stack: 1, icon: 0, tint: 0x5adce6 });
+item({ id: POTION_FIRE, key: "potion_fire", name: "Potion of Fire Resistance", stack: 1, icon: 0, tint: 0xe07818 });
+item({ id: POTION_HEAL, key: "potion_heal", name: "Potion of Healing", stack: 1, icon: 0, tint: 0xf05070 });
+item({ id: POTION_STRENGTH, key: "potion_strength", name: "Potion of Strength", stack: 1, icon: 0, tint: 0x8a2018 });
+item({ id: POTION_WATER, key: "potion_water", name: "Potion of Water Breathing", stack: 1, icon: 0, tint: 0x3a78c8 });
+item({ id: POTION_LEAP, key: "potion_leap", name: "Potion of Leaping", stack: 1, icon: 0, tint: 0x3d8a3a });
+item({ id: POTION_REGEN, key: "potion_regen", name: "Potion of Regeneration", stack: 1, icon: 0, tint: 0xe070a0 });
+item({ id: POTION_INVIS, key: "potion_invis", name: "Potion of Invisibility", stack: 1, icon: 0, tint: 0x8a8aa0 });
+item({ id: SPLASH_HARM, key: "splash_harm", name: "Splash Potion of Harming", stack: 1, icon: 0, tint: 0x6a1030 });
+stack(HONEYCOMB, "honeycomb", "Honeycomb", 0xf0a028);
+stack(NETHER_WART_ITEM, "nether_wart", "Nether Wart", 0x8a2030);
+stack(RABBIT_FOOT, "rabbit_foot", "Rabbit's Foot", 0xc8a06a);
+stack(FERMENTED_EYE, "fermented_eye", "Fermented Spider Eye", 0x5a2030);
+stack(GLISTERING_MELON, "glistering_melon", "Glistering Melon Slice", 0xf0c832);
+food(PUFFERFISH, "pufferfish", "Pufferfish", 1, 0xe0a018);
+food(COOKED_COD, "cooked_cod", "Cooked Cod", 5, 0xc8a05a);
+food(COOKED_SALMON, "cooked_salmon", "Cooked Salmon", 6, 0xc45c4a);
+food(RAW_COD, "raw_cod", "Raw Cod", 2, 0xc8c0a0);
+food(RAW_SALMON, "raw_salmon", "Raw Salmon", 2, 0xc45c4a);
+food(TROPICAL_FISH, "tropical_fish", "Tropical Fish", 1, 0xe07818);
+food(DRIED_KELP, "dried_kelp", "Dried Kelp", 1, 0x3a5a28);
+food(SUSPICIOUS_STEW, "suspicious_stew", "Suspicious Stew", 6, 0x8a7a40);
+food(RABBIT_STEW, "rabbit_stew", "Rabbit Stew", 10, 0x8a5530);
+food(BEETROOT_SOUP, "beetroot_soup", "Beetroot Soup", 6, 0xa02838);
+food(MELON_SLICE, "melon_slice", "Melon Slice", 2, 0xc43048);
+stack(WIND_CHARGE, "wind_charge", "Wind Charge", 0xc8d4e8, 16);
+stack(AMETHYST_SHARD, "amethyst_shard", "Amethyst Shard", 0xb07aa8);
+stack(NETHERITE_SCRAP, "netherite_scrap", "Netherite Scrap", 0x6a4a3a);
+stack(COPPER_SCRAP, "copper_scrap", "Copper Ingot Scrap", 0xc86a3a);
+item({ id: OMINOUS_BOTTLE, key: "ominous_bottle", name: "Ominous Bottle", stack: 1, icon: 0, tint: 0x4a2068 });
+item({ id: TRIAL_KEY, key: "trial_key", name: "Trial Key", stack: 64, icon: 0, tint: 0xe0a018 });
 
 export function getDef(id: number): { name: string; stack: number; tint: number; tool?: ToolType; harvestLevel?: number; damage?: number; armor?: number; food?: number; place?: number; slot?: ItemDef["slot"] } | null {
   if (id <= 0) return null;
@@ -488,6 +622,26 @@ export const RECIPES: Recipe[] = [
   mix(GOLD_INGOT, 9, [GOLD_BLOCK]),
   mix(DIAMOND, 9, [DIAMOND_BLOCK]),
   pick(LADDER, 3, [STICK, 0, STICK, STICK, STICK, STICK, STICK, 0, STICK], true),
+  pick(BOAT, 1, [OAK_PLANKS, 0, OAK_PLANKS, OAK_PLANKS, OAK_PLANKS, OAK_PLANKS, 0, 0, 0]),
+  pick(BIRCH_BOAT, 1, [BIRCH_LOG, 0, BIRCH_LOG, BIRCH_LOG, BIRCH_LOG, BIRCH_LOG, 0, 0, 0]),
+  pick(SPRUCE_BOAT, 1, [SPRUCE_LOG, 0, SPRUCE_LOG, SPRUCE_LOG, SPRUCE_LOG, SPRUCE_LOG, 0, 0, 0]),
+  pick(JUNGLE_BOAT, 1, [JUNGLE_LOG, 0, JUNGLE_LOG, JUNGLE_LOG, JUNGLE_LOG, JUNGLE_LOG, 0, 0, 0]),
+  pick(ACACIA_BOAT, 1, [ACACIA_LOG, 0, ACACIA_LOG, ACACIA_LOG, ACACIA_LOG, ACACIA_LOG, 0, 0, 0]),
+  pick(DARK_OAK_BOAT, 1, [DARK_OAK_LOG, 0, DARK_OAK_LOG, DARK_OAK_LOG, DARK_OAK_LOG, DARK_OAK_LOG, 0, 0, 0]),
+  pick(CHERRY_BOAT, 1, [CHERRY_LOG, 0, CHERRY_LOG, CHERRY_LOG, CHERRY_LOG, CHERRY_LOG, 0, 0, 0]),
+  pick(MANGROVE_BOAT, 1, [MANGROVE_LOG, 0, MANGROVE_LOG, MANGROVE_LOG, MANGROVE_LOG, MANGROVE_LOG, 0, 0, 0]),
+  mix(MUSHROOM_STEW, 1, [BOWL, 100, 101]),
+  mix(BEETROOT_SOUP, 1, [BOWL, BEETROOT, BEETROOT, BEETROOT]),
+  mix(COOKIE, 8, [WHEAT_ITEM, WHEAT_ITEM]),
+  pick(FISHING_ROD, 1, [0, 0, STICK, 0, STICK, STRING, STICK, 0, STRING], true),
+  pick(LEAD, 2, [STRING, STRING, 0, STRING, SLIMEBALL, 0, 0, 0, STRING], true),
+  pick(GOLDEN_CARROT, 1, [GOLD_INGOT, GOLD_INGOT, GOLD_INGOT, GOLD_INGOT, CARROT, GOLD_INGOT, GOLD_INGOT, GOLD_INGOT, GOLD_INGOT], true),
+  pick(ENCHANTED_APPLE, 1, [GOLD_BLOCK, GOLD_BLOCK, GOLD_BLOCK, GOLD_BLOCK, APPLE, GOLD_BLOCK, GOLD_BLOCK, GOLD_BLOCK, GOLD_BLOCK], true),
+  mix(BLAZE_POWDER, 2, [BLAZE_ROD]),
+  mix(FERMENTED_EYE, 1, [SPIDER_EYE, SUGAR, 100]),
+  pick(MINECART, 1, [IRON_INGOT, 0, IRON_INGOT, IRON_INGOT, IRON_INGOT, IRON_INGOT, 0, 0, 0]),
+  mix(GLISTERING_MELON, 1, [MELON_SLICE, GOLD_INGOT]),
+  mix(DRIED_KELP, 1, [100]),
 ];
 
 void LOGS;
@@ -512,5 +666,7 @@ export const SMELT: Record<number, { out: number; xp: number }> = {
   [RAW_CHICKEN]: { out: COOKED_CHICKEN, xp: 2 },
   [POTATO]: { out: BAKED_POTATO, xp: 2 },
   [CLAY_BALL]: { out: BRICK_ITEM, xp: 3 },
+  [RAW_COD]: { out: COOKED_COD, xp: 2 },
+  [RAW_SALMON]: { out: COOKED_SALMON, xp: 2 },
 };
 

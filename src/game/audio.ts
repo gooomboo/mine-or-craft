@@ -48,87 +48,137 @@ export class GameAudio {
     o.stop(this.ctx.currentTime + dur + 0.02);
   }
 
-  private noise(dur: number, vol = 0.08, lp = 1200) {
+  private noise(dur: number, vol = 0.08, lp = 1200, hp = 80) {
     if (!this.ctx || !this.sfx) return;
-    const n = this.ctx.createBuffer(1, this.ctx.sampleRate * dur, this.ctx.sampleRate);
+    const n = this.ctx.createBuffer(1, Math.max(1, Math.floor(this.ctx.sampleRate * dur)), this.ctx.sampleRate);
     const d = n.getChannelData(0);
-    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    let last = 0;
+    for (let i = 0; i < d.length; i++) {
+      const white = Math.random() * 2 - 1;
+      last = last * 0.65 + white * 0.35;
+      d[i] = last;
+    }
     const src = this.ctx.createBufferSource();
     src.buffer = n;
     const f = this.ctx.createBiquadFilter();
     f.type = "lowpass";
     f.frequency.value = lp;
+    const h = this.ctx.createBiquadFilter();
+    h.type = "highpass";
+    h.frequency.value = hp;
     const g = this.ctx.createGain();
     g.gain.setValueAtTime(vol, this.ctx.currentTime);
     g.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + dur);
-    src.connect(f);
+    src.connect(h);
+    h.connect(f);
     f.connect(g);
     g.connect(this.sfx);
     src.start();
   }
 
   place() {
-    this.beep(180 + Math.random() * 40, 0.08, "square", 0.08);
-    this.noise(0.05, 0.04, 800);
+    this.noise(0.07, 0.07, 900, 120);
+    this.beep(160 + Math.random() * 50, 0.06, "square", 0.05);
   }
   break() {
-    this.noise(0.12, 0.1, 1800);
-    this.beep(120, 0.07, "sawtooth", 0.05, -60);
+    this.noise(0.16, 0.14, 2200, 90);
+    this.beep(90 + Math.random() * 40, 0.1, "sawtooth", 0.07, -70);
   }
   step() {
-    this.noise(0.04, 0.035, 600 + Math.random() * 200);
+    this.noise(0.05, 0.045, 480 + Math.random() * 180, 70);
   }
   hit() {
-    this.beep(220, 0.08, "square", 0.12, -80);
+    this.noise(0.09, 0.14, 1800, 180);
+    this.beep(240, 0.08, "square", 0.12, -140);
+    this.beep(90, 0.1, "sawtooth", 0.08, -40);
   }
   hurt() {
-    this.beep(140, 0.18, "sawtooth", 0.14, -90);
+    this.beep(130, 0.2, "sawtooth", 0.16, -100);
+    this.noise(0.12, 0.08, 700, 60);
   }
   pop() {
-    this.beep(520, 0.06, "square", 0.07);
+    this.beep(620, 0.05, "square", 0.06);
+    this.beep(880, 0.04, "triangle", 0.04);
   }
   craft() {
-    this.beep(330, 0.1, "triangle", 0.08);
-    this.beep(490, 0.12, "triangle", 0.06);
+    this.beep(330, 0.09, "triangle", 0.08);
+    this.beep(494, 0.11, "triangle", 0.06);
+    this.beep(660, 0.14, "sine", 0.05);
   }
   portal() {
-    this.beep(90, 0.6, "sine", 0.1, 200);
+    this.beep(70, 0.7, "sine", 0.1, 240);
+    this.beep(110, 0.55, "triangle", 0.05, 180);
+    this.noise(0.4, 0.05, 600, 40);
   }
   ui() {
     this.beep(420, 0.04, "square", 0.05);
   }
   explode() {
-    this.noise(0.4, 0.25, 400);
-    this.beep(60, 0.4, "sawtooth", 0.12, -40);
+    this.noise(0.45, 0.28, 500, 30);
+    this.beep(55, 0.45, "sawtooth", 0.14, -30);
   }
   jump() {
-    this.beep(280, 0.08, "square", 0.05, -40);
-    this.noise(0.04, 0.03, 900);
+    this.beep(300, 0.07, "square", 0.045, -50);
+    this.noise(0.04, 0.03, 1100, 200);
   }
   land() {
-    this.noise(0.07, 0.06, 500);
-    this.beep(90, 0.05, "triangle", 0.04);
+    this.noise(0.08, 0.07, 420, 50);
+    this.beep(80, 0.05, "triangle", 0.04);
   }
   eat() {
-    this.noise(0.12, 0.05, 1400);
-    this.beep(180, 0.08, "square", 0.04);
+    this.noise(0.14, 0.06, 1600, 300);
+    this.beep(170, 0.07, "square", 0.04);
+    this.beep(220, 0.05, "square", 0.03);
   }
   bow() {
-    this.beep(520, 0.06, "triangle", 0.07, -120);
+    this.beep(540, 0.05, "triangle", 0.07, -140);
+    this.noise(0.06, 0.04, 2400, 400);
   }
   splash() {
-    this.noise(0.18, 0.08, 1800);
-    this.beep(240, 0.1, "sine", 0.04, -80);
+    this.noise(0.2, 0.09, 2000, 250);
+    this.beep(230, 0.1, "sine", 0.04, -90);
   }
   blockHit() {
-    this.beep(160, 0.05, "square", 0.08);
-    this.noise(0.06, 0.05, 700);
+    this.beep(150, 0.05, "square", 0.08);
+    this.noise(0.07, 0.06, 800, 120);
   }
   dragon() {
-    this.beep(80, 0.8, "sawtooth", 0.1, 40);
+    this.beep(72, 0.9, "sawtooth", 0.11, 50);
+    this.noise(0.5, 0.08, 300, 20);
   }
   wraith() {
-    this.beep(70, 1.2, "sine", 0.08, 30);
+    this.beep(64, 1.3, "sine", 0.08, 40);
+    this.beep(96, 1.1, "triangle", 0.04, 20);
+  }
+
+  swing() {
+    this.noise(0.06, 0.06, 2600, 400);
+    this.beep(180, 0.05, "square", 0.04, -70);
+  }
+  shield() {
+    this.beep(420, 0.07, "triangle", 0.12, -40);
+    this.beep(180, 0.08, "square", 0.06);
+    this.noise(0.08, 0.07, 1400, 160);
+  }
+  death() {
+    this.beep(98, 0.5, "sawtooth", 0.15, -80);
+    this.noise(0.4, 0.14, 500, 40);
+  }
+  levelup() {
+    this.beep(523, 0.12, "triangle", 0.1);
+    this.beep(659, 0.14, "triangle", 0.08);
+    this.beep(784, 0.2, "sine", 0.07);
+  }
+  pearl() {
+    this.beep(200, 0.2, "sine", 0.08, 200);
+    this.noise(0.14, 0.05, 1500, 200);
+  }
+  click() {
+    this.beep(680, 0.03, "square", 0.04);
+  }
+  whoosh() {
+    this.noise(0.09, 0.07, 2600, 500);
+    this.beep(400, 0.07, "sine", 0.04, -180);
   }
 
   tickMusic(dt: number, night: boolean, nether: boolean, end: boolean) {

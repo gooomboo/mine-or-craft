@@ -1,5 +1,5 @@
 import { useState } from "react";
-import type { CameraMode, CrosshairStyle, Difficulty, GraphicsPreset, Settings } from "@/game/types";
+import type { CameraMode, ControlScheme, CrosshairStyle, Difficulty, GraphicsPreset, Settings } from "@/game/types";
 import { DEFAULT_SETTINGS } from "@/game/types";
 import { useApp } from "@/store/app-store";
 
@@ -85,11 +85,61 @@ function Checks({
   );
 }
 
+function Keybinds({ settings, set }: { settings: Settings; set: (s: Partial<Settings>) => void }) {
+  const [wait, setWait] = useState<keyof Settings["binds"] | null>(null);
+  const labels: [keyof Settings["binds"], string][] = [
+    ["forward", "Walk forward"],
+    ["back", "Walk back"],
+    ["left", "Strafe left"],
+    ["right", "Strafe right"],
+    ["jump", "Jump"],
+    ["sneak", "Sneak"],
+    ["sprint", "Sprint"],
+    ["inventory", "Inventory"],
+    ["drop", "Drop"],
+    ["chat", "Chat"],
+    ["use", "Use / block"],
+  ];
+  return (
+    <div className="mb-3 space-y-1">
+      {labels.map(([k, lab]) => (
+        <button
+          key={k}
+          type="button"
+          className={`mc-btn flex min-h-11 w-full items-center justify-between px-3 text-sm ${wait === k ? "mc-btn-primary" : ""}`}
+          onClick={() => setWait(k)}
+          onKeyDown={(e) => {
+            if (wait !== k) return;
+            e.preventDefault();
+            e.stopPropagation();
+            const code = e.code;
+            if (code === "Escape") {
+              setWait(null);
+              return;
+            }
+            set({ binds: { ...settings.binds, [k]: code } });
+            setWait(null);
+          }}
+        >
+          <span>{lab}</span>
+          <span className="text-xs text-muted">{wait === k ? "Press a key…" : settings.binds[k]}</span>
+        </button>
+      ))}
+      <button
+        type="button"
+        className="text-xs text-muted"
+        onClick={() => set({ binds: { ...DEFAULT_SETTINGS.binds } })}
+      >
+        Reset binds
+      </button>
+    </div>
+  );
+}
+
 export function SettingsPanel({ fromPause }: { fromPause: boolean }) {
   const settings = useApp((s) => s.settings);
   const setSettings = useApp((s) => s.setSettings);
   const setOverlay = useApp((s) => s.setOverlay);
-  const setPhase = useApp((s) => s.setPhase);
   const [tab, setTab] = useState<Tab>("video");
 
   const tabs: { id: Tab; label: string }[] = [
@@ -133,6 +183,7 @@ export function SettingsPanel({ fromPause }: { fromPause: boolean }) {
                     patch.shadows = false;
                     patch.antialias = false;
                     patch.pixelRatioCap = 1;
+                    patch.optimized = true;
                   } else if (graphics === "fancy") {
                     patch.ao = true;
                     patch.particles = true;
@@ -141,6 +192,7 @@ export function SettingsPanel({ fromPause }: { fromPause: boolean }) {
                     patch.shadows = false;
                     patch.antialias = true;
                     patch.pixelRatioCap = 1.5;
+                    patch.optimized = false;
                   } else {
                     patch.ao = true;
                     patch.particles = true;
@@ -152,6 +204,7 @@ export function SettingsPanel({ fromPause }: { fromPause: boolean }) {
                     patch.stars = true;
                     patch.sunMoon = true;
                     patch.weatherFx = true;
+                    patch.optimized = false;
                   }
                   setSettings(patch);
                 }}
@@ -160,6 +213,7 @@ export function SettingsPanel({ fromPause }: { fromPause: boolean }) {
                 <option value="fast">Fast — performance</option>
                 <option value="fancy">Fancy — balanced</option>
                 <option value="fabulous">Fabulous — max quality</option>
+                <option value="rtx">RTX — filmic light + shadows</option>
               </select>
             </Row>
             <Row label={`Render distance (${settings.renderDistance} chunks)`}>
@@ -194,10 +248,35 @@ export function SettingsPanel({ fromPause }: { fromPause: boolean }) {
             <Row label={`Max FPS (${settings.maxFps === 0 ? "unlimited" : settings.maxFps})`}>
               <Slider min={0} max={240} step={15} value={settings.maxFps} onChange={(n) => setSettings({ maxFps: n })} />
             </Row>
+            <label className="mb-3 flex min-h-11 items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={settings.optimized}
+                onChange={(e) => {
+                  if (e.target.checked) {
+                    setSettings({
+                      optimized: true,
+                      graphics: "fast",
+                      ao: false,
+                      particles: false,
+                      clouds: false,
+                      fancyWater: false,
+                      shadows: false,
+                      antialias: false,
+                      pixelRatioCap: 1,
+                      renderDistance: Math.min(settings.renderDistance, 3),
+                    });
+                  } else {
+                    setSettings({ optimized: false });
+                  }
+                }}
+              />
+              Optimized (off by default) — drops shadows, particles, and distance
+            </label>
             <Checks
               items={[
                 ["ao", "Smooth lighting"],
-                ["shadows", "Shadows (Fabulous)"],
+                ["shadows", "Shadows (Fabulous / RTX)"],
                 ["clouds", "Clouds"],
                 ["particles", "Particles"],
                 ["fancyWater", "Fancy water"],
@@ -218,6 +297,17 @@ export function SettingsPanel({ fromPause }: { fromPause: boolean }) {
 
         {tab === "controls" && (
           <>
+            <Row label="Device">
+              <select
+                value={settings.controlScheme}
+                onChange={(e) => setSettings({ controlScheme: e.target.value as ControlScheme })}
+                className="min-h-11 w-full border-2 border-black bg-elevated px-2"
+              >
+                <option value="auto">Auto — buttons on phones, keys on PC</option>
+                <option value="touch">Phone / tablet — on-screen buttons</option>
+                <option value="keys">PC / Chromebook — hide buttons, use keys</option>
+              </select>
+            </Row>
             <Row label={`Mouse sensitivity (${settings.mouseSens.toFixed(2)})`}>
               <Slider
                 min={0.04}
@@ -258,9 +348,17 @@ export function SettingsPanel({ fromPause }: { fromPause: boolean }) {
               settings={settings}
               set={setSettings}
             />
-            <p className="mb-3 text-xs text-muted">
-              WASD move · mouse look · Space jump · Shift sneak · Ctrl/R sprint · E inventory · F5 camera · F3 debug
-            </p>
+            <p className="mb-2 text-xs text-muted">Click a bind, then press a key. WASD move · mouse look · Space jump.</p>
+            <Keybinds settings={settings} set={setSettings} />
+            <div className="mc-panel mb-3 p-3 text-xs leading-6">
+              <p className="mb-1 font-medium">Default layout</p>
+              <p>W A S D — walk. Mouse — look around.</p>
+              <p>Space — jump. Left Shift — sneak. Left Ctrl or R — sprint.</p>
+              <p>Left click — hit / mine. Right click — use, eat, place, block with a shield.</p>
+              <p>C — raise shield. Q — drop. 1–9 — hotbar.</p>
+              <p>E — inventory. Esc — pause. T — chat. Insert — Studio (local + cheats).</p>
+              <p>F5 — camera. F3 — coordinates. On a phone, use the stick and Hit / Use / Jump.</p>
+            </div>
           </>
         )}
 
@@ -411,10 +509,7 @@ export function SettingsPanel({ fromPause }: { fromPause: boolean }) {
             primary
             onClick={() => {
               if (fromPause) setOverlay("pause");
-              else {
-                setOverlay("none");
-                setPhase("menu");
-              }
+              else setOverlay("none");
             }}
           >
             Done
