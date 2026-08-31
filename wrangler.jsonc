@@ -1,10 +1,9 @@
 {
-  // Cloudflare Workers + static assets. Matches the dashboard form:
-  //   Project name:    mine-or-craft
+  // Cloudflare Worker name MUST match the dashboard project: mine-or-craft-xp
   //   Build command:   npm run build:cf
   //   Deploy command:  npx wrangler deploy
-  // Do not set DATABASE_URL. Do not use Pages-only pages_build_output_dir.
-  "name": "mine-or-craft",
+  // Do not set DATABASE_URL.
+  "name": "mine-or-craft-xp",
   "main": "workers/index.js",
   "compatibility_date": "2026-08-30",
   "assets": {
