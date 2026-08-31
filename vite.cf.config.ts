@@ -4,7 +4,7 @@ import tailwindcss from "@tailwindcss/vite";
 
 /**
  * Cloudflare Pages static SPA. No Nitro, no Vercel, no PGLite, no SSR.
- * Signaling lives in functions/api/rtc.js (Pages Function, in-memory).
+ * Signaling lives in workers/index.js (Worker + /api/rtc). No Pages-only APIs.
  */
 export default defineConfig({
   plugins: [tailwindcss(), viteReact()],

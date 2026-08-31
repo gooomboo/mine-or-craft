@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 /**
- * Cloudflare-safe static build.
+ * Cloudflare-safe static build for `npx wrangler deploy`.
  * - Does NOT run db:migrate
  * - Does NOT use the Vercel nitro preset
  * - Does NOT need DATABASE_URL
- * Output: dist/client/index.html + assets, plus public/_redirects.
+ * Output: dist/client/index.html + assets.
+ * wrangler.jsonc then ships dist/client as Worker static assets.
  */
 import { spawnSync } from "node:child_process";
 import { existsSync, renameSync, writeFileSync, readFileSync, mkdirSync } from "node:fs";

@@ -38,41 +38,46 @@ Your computer is the Minecraft-style server when you click **Host**. Cloudflare 
 
 Repo is [gooomboo/mine-or-craft](https://github.com/gooomboo/mine-or-craft). Push the `main` branch. Do **not** commit `node_modules`, `.env`, or `.vercel`.
 
-### 2. Cloudflare Pages — copy these fields exactly
+### 2. Cloudflare — the form on your phone (Workers, not classic Pages)
 
-The last failed deploy (`#c0ed1e75` on commit `5505e1f`) had two problems:
+You are on **Create a Worker**. Two red errors on that screen:
 
-1. That commit did not have a working `build:cf` (it ran the Vercel/Nitro build).
-2. **Deploy command** was set to `npx wrangler deploy`. Leave that blank.
+1. **Project name** `-mine.or.craft-` is illegal. Cloudflare only allows `a-z`, `0-9`, and `-`. No dots. No dash at the start or end.
+2. **Deploy command** is required. Do not leave it empty.
 
-Create a **Pages** project (Workers & Pages → Create → Pages → Connect to Git), pick `gooomboo/mine-or-craft`, then:
+Type these three fields **exactly**:
 
-| Field | Value |
+| Field | Type this, nothing else |
 | --- | --- |
-| Framework preset | None |
+| Project name | `mine-or-craft` |
 | Build command | `npm run build:cf` |
-| **Output directory** | `dist/client` |
-| Root directory | `/` (leave default) |
-| **Deploy command** | *(empty — delete `npx wrangler deploy` if it is filled)* |
-| Node version | Settings → Environment variables → `NODE_VERSION` = `22` |
+| Deploy command | `npx wrangler deploy` |
 
-**Do not set `DATABASE_URL`.** That is the #1 Cloudflare crash for this game.
+Then:
 
-**Do not** upload `.vercel` or change the nitro preset. Pages only needs the static client + `functions/api/rtc.js`.
+- Leave **Protect with Cloudflare Access** OFF.
+- **Builds for non-production branches** can stay checked.
+- Open **Advanced settings** only if you want Node: add variable `NODE_VERSION` = `22`.
+- **Do not** add `DATABASE_URL`. That crashes this game.
+- Tap the blue check.
 
-Then **Retry build** on the latest `main` (not an old commit like `5505e1f`).
+Your live URL will be `https://mine-or-craft.<your-subdomain>.workers.dev` (or a `pages.dev` URL if Cloudflare routes it as Pages). After the first successful build, open that URL.
 
-If the site 404s, edit the project and set Output directory to `dist` instead of `dist/client`, then retry.
+If the name `mine-or-craft` is taken, use `mine-or-craft-shawn` — still only letters, numbers, dashes.
 
-Online join codes use `functions/api/rtc.js` (in-memory signaling, no database). Host a world, share the code, friends open the same Cloudflare URL and paste it.
+The last failed deploy used `npx wrangler deploy` against a **Pages-only** config. The repo now uses Workers static assets, so that same deploy command is the correct one.
+
+**Do not** upload `.vercel`. **Do not** run `npm run db:migrate` on Cloudflare.
+
+Online join codes use `/api/rtc` (in-memory signaling, no database). Host a world, share the code, friends open the same URL and paste it.
 
 ### What makes Cloudflare bug out (avoid these)
 
 - Setting `DATABASE_URL` or running `npm run db:migrate` on Pages.
 - Pointing wrangler at the Vercel nitro output.
-- Filling **Deploy command** with `npx wrangler deploy` on a Pages project.
+- Filling **Deploy command** with `npx wrangler pages deploy` on this Worker form (use `npx wrangler deploy`).
 - Buying a Java/Bedrock Minecraft host. That protocol is not this game.
-- GitHub Pages **alone** — the static game works, but `/api/rtc` 404s so Online cannot connect. Use Cloudflare Pages so the Function exists.
+- GitHub Pages **alone** — the static game works, but `/api/rtc` 404s so Online cannot connect. Use this Cloudflare Worker so `/api/rtc` exists.
 - Building from an old commit that does not have `scripts/build-cf.mjs`.
 
 ### After it is live
