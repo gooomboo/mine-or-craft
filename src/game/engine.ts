@@ -527,7 +527,7 @@ export class Engine {
     this.runScripts("join");
     this.chat.push("Welcome to Mine or Craft.");
     if (this.meta.arena) this.chat.push("Arena: respawn at your pad. PvP on.");
-    else this.chat.push("Punch a log. Open bag → Quick Craft (Log→Planks, 4 Planks→Table). Long-press a stack to split one.");
+    else this.chat.push("Punch a log. Open bag. Drop it in the 2×2. Take planks. Green book auto-fills the table recipe — or right-click one plank into each square.");
     this.ready = true;
     document.addEventListener("visibilitychange", this.onHideSave);
     window.addEventListener("pagehide", this.onHideSave);

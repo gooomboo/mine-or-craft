@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Box, ChevronLeft, Heart, MessageSquare, Pause, Users } from "lucide-react";
+import { BookOpen, Box, ChevronLeft, Heart, MessageSquare, Pause, Users } from "lucide-react";
 import { BLOCKS, BLOCK_COUNT } from "@/game/blocks";
-import { consumeGrid, matchRecipe, mergeInto, quickCraft, trySmelt } from "@/game/crafting";
+import { bookRecipes, consumeGrid, dumpGrid, fillGridFromRecipe, hasIngredients, matchRecipe, mergeInto, trySmelt } from "@/game/crafting";
 import { Engine } from "@/game/engine";
 import { GameAudio } from "@/game/audio";
 import { displayName, getDef, ITEMS } from "@/game/items";
@@ -1478,10 +1478,21 @@ function InventoryOverlay({ kind }: { kind: Overlay }) {
   const [craft, setCraft] = useState<Slot[]>(Array.from({ length: 9 }, () => null));
   const [query, setQuery] = useState("");
   const [invTab, setInvTab] = useState<"all" | "blocks" | "items">("all");
-  const [hint, setHint] = useState("");
+  const [book, setBook] = useState(false);
   const table = kind === "crafting";
   const n = table ? 3 : 2;
   const result = useMemo(() => matchRecipe(craft, table), [craft, table]);
+  const recipes = useMemo(() => bookRecipes(table), [table]);
+  const craftRef = useRef(craft);
+  craftRef.current = craft;
+  const profile = useApp((s) => s.profile);
+  useEffect(() => {
+    return () => {
+      const p = engineRef?.player;
+      if (!p) return;
+      dumpGrid(p.inventory, craftRef.current);
+    };
+  }, []);
 
   const clickSlot = (list: "inv" | "craft" | "armor" | "off", i: number, one = false) => {
     if (!engineRef) return;
@@ -1536,16 +1547,31 @@ function InventoryOverlay({ kind }: { kind: Overlay }) {
     },
   });
 
-  const takeResult = () => {
-    if (!result || !engineRef) return;
-    consumeGrid(craft, n);
+  const takeResult = (all = false) => {
+    if (!engineRef) return;
+    let guard = 0;
+    do {
+      const hit = matchRecipe(craft, table);
+      if (!hit) break;
+      consumeGrid(craft, n);
+      if (held && held.id === hit.out.id) {
+        held.count += hit.out.count;
+        setHeld({ ...held });
+      } else if (!held) setHeld({ ...hit.out });
+      else mergeInto(engineRef.player.inventory, { ...hit.out });
+      engineRef.audio.craft();
+      guard++;
+    } while (all && guard < 64);
     setCraft([...craft]);
-    if (held && held.id === result.out.id) {
-      held.count += result.out.count;
-      setHeld({ ...held });
-    } else if (!held) setHeld({ ...result.out });
-    else mergeInto(engineRef.player.inventory, { ...result.out });
-    engineRef.audio.craft();
+    useApp.getState().setHud({ ...(useApp.getState().hud as NonNullable<typeof hud>), inventory: [...engineRef.player.inventory] });
+  };
+
+  const pickRecipe = (r: (typeof recipes)[number]) => {
+    if (!engineRef) return;
+    const ok = fillGridFromRecipe(engineRef.player.inventory, craft, r, n);
+    setCraft([...craft]);
+    useApp.getState().setHud({ ...(useApp.getState().hud as NonNullable<typeof hud>), inventory: [...engineRef.player.inventory] });
+    if (ok) engineRef.audio.ui();
   };
 
   const creative = hud?.mode === "creative";
@@ -1577,6 +1603,10 @@ function InventoryOverlay({ kind }: { kind: Overlay }) {
             type="button"
             className="mc-btn min-h-11 px-3"
             onClick={() => {
+              if (engineRef) {
+                dumpGrid(engineRef.player.inventory, craft);
+                if (held) mergeInto(engineRef.player.inventory, held);
+              }
               getEngine()?.setOverlay("none");
               setOverlay("none");
             }}
@@ -1585,59 +1615,88 @@ function InventoryOverlay({ kind }: { kind: Overlay }) {
           </button>
         </div>
         {kind !== "furnace" && (
-          <div className="mb-3 grid grid-cols-3 gap-1">
-            {([
-              ["planks", "Log → 4 planks"],
-              ["table", "4 planks → table"],
-              ["sticks", "2 planks → sticks"],
-            ] as const).map(([k, label]) => (
+          <div className="mb-4 flex flex-wrap items-start gap-3">
+            <div className="flex gap-2">
+              <div className="flex flex-col gap-1">
+                {hud.armor.map((s, i) => (
+                  <button key={i} type="button" className="mc-slot" {...slotEv("armor", i)}>
+                    {s && <ItemIcon id={s.id} count={s.count} />}
+                  </button>
+                ))}
+                <button type="button" className="mc-slot" {...slotEv("off", 0)}>
+                  {hud.offhand && <ItemIcon id={hud.offhand.id} count={hud.offhand.count} />}
+                </button>
+              </div>
+              <div className="flex flex-col items-center">
+                <SkinPreview skin={resolveSkin(profile.skin)} size={table ? 88 : 108} />
+                <p className="mt-1 text-[10px] text-muted">You</p>
+              </div>
+            </div>
+            <div className="flex items-start gap-2">
+              <div>
+                <p className="mb-1 text-[10px] tracking-wide text-muted">{table ? "3×3 table" : "2×2 crafting"}</p>
+                <div className={`grid gap-1 ${table ? "grid-cols-3" : "grid-cols-2"}`}>
+                  {Array.from({ length: n * n }, (_, i) => (
+                    <button key={i} type="button" className="mc-slot" {...slotEv("craft", i)}>
+                      {craft[i] && <ItemIcon id={craft[i]!.id} count={craft[i]!.count} />}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="pt-7 text-muted">→</div>
+              <div className="pt-5">
+                <button
+                  type="button"
+                  className="mc-slot size-14"
+                  onClick={(e) => takeResult(e.shiftKey)}
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    takeResult(true);
+                  }}
+                >
+                  {result && <ItemIcon id={result.out.id} count={result.out.count} />}
+                </button>
+                <p className="mt-1 w-14 text-center text-[9px] text-muted">Hold / Shift: all</p>
+              </div>
               <button
-                key={k}
                 type="button"
-                className="mc-btn min-h-11 px-1 text-[11px] leading-tight"
-                onClick={() => {
-                  if (!engineRef) return;
-                  const msg = quickCraft(engineRef.player.inventory, k);
-                  setHint(msg);
-                  engineRef.audio.craft();
-                  useApp.getState().setHud({ ...(useApp.getState().hud as NonNullable<typeof hud>), inventory: [...engineRef.player.inventory] });
-                }}
+                className={`mc-btn mt-5 size-12 p-0 ${book ? "mc-btn-primary" : ""}`}
+                style={book ? undefined : { background: "#3d7a32", boxShadow: "inset 2px 2px 0 #6cbf4e, inset -2px -2px 0 #1e4a18" }}
+                onClick={() => setBook((b) => !b)}
+                aria-label="Recipe book"
+                title="Recipe book"
               >
-                {label}
+                <BookOpen className="mx-auto size-5" />
               </button>
-            ))}
+            </div>
+          </div>
+        )}
+        {kind !== "furnace" && book && (
+          <div className="mb-3 border-2 border-black bg-[#1a140c] p-2">
+            <p className="mb-1 text-[11px] text-[#8fd46a]">Recipe book — tap a recipe you have the items for. It fills the grid like Minecraft.</p>
+            <div className="grid max-h-36 grid-cols-8 gap-1 overflow-y-auto sm:grid-cols-10">
+              {recipes.map((r) => {
+                const ready = engineRef ? hasIngredients(engineRef.player.inventory, r) : false;
+                return (
+                  <button
+                    key={r.out}
+                    type="button"
+                    className={`mc-slot ${ready ? "outline outline-1 outline-[#6cbf4e]" : "opacity-40"}`}
+                    title={displayName(r.out)}
+                    onClick={() => pickRecipe(r)}
+                  >
+                    <ItemIcon id={r.out} count={r.count} />
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
         <p className="mb-2 text-[11px] text-muted">
-          Tap a slot to move a whole stack. Long-press or right-click to split one item. {hint}
+          Tap a slot to move a whole stack. Right-click or long-press to place or take one. One log in any 2×2 square makes planks. Four planks, one per square, make a crafting table.
         </p>
-        {kind !== "furnace" && (
-          <div className="mb-4 flex items-start gap-4">
-            <div className={`grid gap-1 ${table ? "grid-cols-3" : "grid-cols-2"}`}>
-              {Array.from({ length: n * n }, (_, i) => (
-                <button key={i} type="button" className="mc-slot" {...slotEv("craft", i)}>
-                  {craft[i] && <ItemIcon id={craft[i]!.id} count={craft[i]!.count} />}
-                </button>
-              ))}
-            </div>
-            <div className="pt-6 text-muted">→</div>
-            <button type="button" className="mc-slot size-14" onClick={takeResult}>
-              {result && <ItemIcon id={result.out.id} count={result.out.count} />}
-            </button>
-          </div>
-        )}
         {kind === "furnace" && <FurnaceMini />}
-        <p className="mb-1 text-xs text-muted">Armor / offhand</p>
-        <div className="mb-3 flex gap-1">
-          {hud.armor.map((s, i) => (
-            <button key={i} type="button" className="mc-slot" {...slotEv("armor", i)}>
-              {s && <ItemIcon id={s.id} count={s.count} />}
-            </button>
-          ))}
-          <button type="button" className="mc-slot" {...slotEv("off", 0)}>
-            {hud.offhand && <ItemIcon id={hud.offhand.id} count={hud.offhand.count} />}
-          </button>
-        </div>
+        <p className="mb-1 text-xs text-muted">Inventory</p>
         <div className="inv-grid">
           {hud.inventory.slice(9).map((s, i) => (
             <button key={i + 9} type="button" className="mc-slot" {...slotEv("inv", i + 9)}>

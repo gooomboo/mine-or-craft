@@ -11,6 +11,18 @@ function counts(slots: Slot[]): Map<number, number> {
   return m;
 }
 
+export function isLogItem(id: number) {
+  const k = BLOCKS[id]?.key ?? "";
+  return k.includes("log") || k.includes("_stem");
+}
+
+function sameIng(need: number, have: number) {
+  if (need === have) return true;
+  if (isLogItem(need) && isLogItem(have)) return true;
+  if (need === OAK_PLANKS && (BLOCKS[have]?.key ?? "").includes("plank")) return true;
+  return false;
+}
+
 export function matchRecipe(grid: Slot[], table: boolean): { recipe: Recipe; out: { id: number; count: number } } | null {
   const n = table ? 3 : 2;
   const cells: number[] = [];
@@ -21,10 +33,21 @@ export function matchRecipe(grid: Slot[], table: boolean): { recipe: Recipe; out
     if (r.shapeless) {
       const need = new Map<number, number>();
       for (const id of r.shapeless) need.set(id, (need.get(id) ?? 0) + 1);
-      const have = counts(grid.slice(0, n * n).map((s) => (s ? { id: s.id, count: 1 } : null)));
-      let ok = true;
-      if (have.size !== need.size) ok = false;
-      else for (const [id, c] of need) if ((have.get(id) ?? 0) !== c) ok = false;
+      const used = new Set<number>();
+      let ok = r.shapeless.length === cells.filter((id) => id > 0).length;
+      if (ok) {
+        for (const [id, c] of need) {
+          let got = 0;
+          for (let i = 0; i < cells.length; i++) {
+            if (used.has(i)) continue;
+            if (sameIng(id, cells[i] ?? 0)) {
+              used.add(i);
+              got++;
+            }
+          }
+          if (got !== c) ok = false;
+        }
+      }
       if (ok) return { recipe: r, out: { id: r.out, count: r.count } };
       continue;
     }
@@ -41,7 +64,9 @@ export function matchRecipe(grid: Slot[], table: boolean): { recipe: Recipe; out
             const inPat = x >= ox && x < ox + pw && y >= oy && y < oy + pw;
             const want = inPat ? (pat[(y - oy) * pw + (x - ox)] ?? 0) : 0;
             const got = cells[y * n + x] ?? 0;
-            if (want !== got) ok = false;
+            if (want === 0) {
+              if (got !== 0) ok = false;
+            } else if (!sameIng(want, got)) ok = false;
           }
         }
         if (ok) return { recipe: r, out: { id: r.out, count: r.count } };
@@ -84,37 +109,83 @@ export function mergeInto(inv: Slot[], item: Slot): boolean {
   return item.count <= 0;
 }
 
-void getDef;
-
-export function isLogItem(id: number) {
-  const k = BLOCKS[id]?.key ?? "";
-  return k.includes("log") || k.includes("_stem");
+export function dumpGrid(inv: Slot[], grid: Slot[]) {
+  for (let i = 0; i < grid.length; i++) {
+    if (!grid[i]) continue;
+    mergeInto(inv, grid[i]);
+    grid[i] = null;
+  }
 }
 
-export function quickCraft(inv: Slot[], kind: "planks" | "table" | "sticks"): string {
-  const take = (pred: (id: number) => boolean, n: number) => {
-    let need = n;
-    for (const s of inv) {
-      if (!s || !pred(s.id)) continue;
-      const use = Math.min(need, s.count);
-      s.count -= use;
-      need -= use;
-      if (need <= 0) break;
+export function recipeIngredients(r: Recipe): { id: number; count: number }[] {
+  const m = new Map<number, number>();
+  if (r.shapeless) for (const id of r.shapeless) m.set(id, (m.get(id) ?? 0) + 1);
+  else if (r.shaped) for (const id of r.shaped) if (id) m.set(id, (m.get(id) ?? 0) + 1);
+  return [...m].map(([id, count]) => ({ id, count }));
+}
+
+export function hasIngredients(inv: Slot[], r: Recipe): boolean {
+  const have = counts(inv);
+  for (const { id, count } of recipeIngredients(r)) {
+    let n = 0;
+    for (const [hid, c] of have) if (sameIng(id, hid)) n += c;
+    if (n < count) return false;
+  }
+  return true;
+}
+
+function pullInv(inv: Slot[], id: number): number {
+  for (let i = 0; i < inv.length; i++) {
+    const s = inv[i];
+    if (!s || !sameIng(id, s.id)) continue;
+    const got = s.id;
+    s.count--;
+    if (s.count <= 0) inv[i] = null;
+    return got;
+  }
+  return 0;
+}
+
+export function fillGridFromRecipe(inv: Slot[], grid: Slot[], r: Recipe, n: number): boolean {
+  if (!hasIngredients(inv, r)) return false;
+  dumpGrid(inv, grid);
+  if (r.shapeless) {
+    for (let i = 0; i < r.shapeless.length && i < n * n; i++) {
+      const got = pullInv(inv, r.shapeless[i]!);
+      if (!got) return false;
+      grid[i] = { id: got, count: 1 };
     }
-    for (let i = 0; i < inv.length; i++) if (inv[i] && inv[i]!.count <= 0) inv[i] = null;
-    return need <= 0;
-  };
-  if (kind === "planks") {
-    if (!take(isLogItem, 1)) return "Need a log in your bag.";
-    mergeInto(inv, { id: OAK_PLANKS, count: 4 });
-    return "Crafted 4 planks.";
+    return true;
   }
-  if (kind === "sticks") {
-    if (!take((id) => id === OAK_PLANKS, 2)) return "Need 2 planks.";
-    mergeInto(inv, { id: STICK, count: 4 });
-    return "Crafted 4 sticks.";
+  if (!r.shaped) return false;
+  const dim = r.shaped.length > 4 ? 3 : 2;
+  if (dim === 3 && n === 2) return false;
+  for (let y = 0; y < dim; y++) {
+    for (let x = 0; x < dim; x++) {
+      const want = r.shaped[y * dim + x] ?? 0;
+      if (!want) continue;
+      const got = pullInv(inv, want);
+      if (!got) return false;
+      grid[y * n + x] = { id: got, count: 1 };
+    }
   }
-  if (!take((id) => id === OAK_PLANKS, 4)) return "Need 4 planks.";
-  mergeInto(inv, { id: CRAFTING_TABLE, count: 1 });
-  return "Crafted a crafting table. Place it, then Use it for 3x3 recipes.";
+  return true;
 }
+
+/** One entry per output so the book is not nine "oak log → planks" rows. */
+export function bookRecipes(table: boolean): Recipe[] {
+  const seen = new Set<number>();
+  const out: Recipe[] = [];
+  for (const r of RECIPES) {
+    if (r.table && !table) continue;
+    if (r.shaped && r.shaped.length > 4 && !table) continue;
+    if (seen.has(r.out)) continue;
+    seen.add(r.out);
+    out.push(r);
+  }
+  return out;
+}
+
+void getDef;
+void CRAFTING_TABLE;
+void STICK;

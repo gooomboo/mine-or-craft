@@ -588,6 +588,7 @@ export const RECIPES: Recipe[] = [
   pick(BOW, 1, [0, STICK, STRING, STICK, 0, STRING, 0, STICK, STRING], true),
   pick(ARROW, 4, [0, FLINT, 0, 0, STICK, 0, 0, FEATHER, 0], true),
   mix(FLINT_STEEL, 1, [IRON_INGOT, FLINT]),
+  pick(TORCH, 4, [COAL, 0, STICK, 0]),
   pick(TORCH, 4, [0, COAL, 0, 0, STICK, 0, 0, 0, 0]),
   pick(FURNACE, 1, [COBBLE, COBBLE, COBBLE, COBBLE, 0, COBBLE, COBBLE, COBBLE, COBBLE], true),
   pick(BUCKET, 1, [IRON_INGOT, 0, IRON_INGOT, 0, IRON_INGOT, 0, 0, 0, 0], true),
