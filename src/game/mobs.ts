@@ -69,7 +69,8 @@ export type MobKind =
   | "warden"
   | "breeze"
   | "piglin_brute"
-  | "zombified_piglin";
+  | "zombified_piglin"
+  | "custom_boss";
 
 export interface Mob {
   id: number;
@@ -94,6 +95,7 @@ export interface Mob {
   ai?: "wander" | "chase" | "flee" | "idle" | "guard" | "circle";
   aiT?: number;
   lastHurt?: number;
+  label?: string;
 }
 
 let nextId = 1;
@@ -340,6 +342,18 @@ function makeMesh(kind: MobKind): THREE.Group {
   } else if (kind === "breeze") {
     g.add(part(0.55, 1.4, 0.55, 0xa0c8e8, 0.9, 0, 0, 0xa0c8e8));
     g.add(part(0.7, 0.4, 0.7, 0xd0e4f4, 1.7));
+  } else if (kind === "custom_boss") {
+    g.add(part(1.6, 2.2, 1.1, 0x3a1848, 1.5));
+    g.add(part(1.1, 1.0, 1.0, 0x5a2068, 2.85));
+    g.add(part(0.22, 0.22, 0.12, 0xffe060, 2.95, -0.28, -0.48, 0xffe060));
+    g.add(part(0.22, 0.22, 0.12, 0xffe060, 2.95, 0.28, -0.48, 0xffe060));
+    g.add(part(0.18, 0.7, 0.18, 0x1a0a28, 3.5, -0.4, -0.1));
+    g.add(part(0.18, 0.7, 0.18, 0x1a0a28, 3.5, 0.4, -0.1));
+    g.add(part(0.45, 1.8, 0.45, 0x4a1860, 1.5, -1.05, 0));
+    g.add(part(0.45, 1.8, 0.45, 0x4a1860, 1.5, 1.05, 0));
+    g.add(part(0.5, 0.5, 0.5, 0xe050e0, 1.7, 0, -0.55, 0xe050e0));
+    g.add(part(0.9, 0.18, 1.6, 0x2a1040, 2.4, 1.4, 0.1));
+    g.add(part(0.9, 0.18, 1.6, 0x2a1040, 2.4, -1.4, 0.1));
   } else {
     g.add(part(0.5, 0.5, 0.5, 0x888888, 0.25));
   }
@@ -411,6 +425,7 @@ const STATS: Record<MobKind, { hp: number; hostile: boolean; speed: number; dmg:
   breeze: { hp: 30, hostile: true, speed: 2.6, dmg: 5 },
   piglin_brute: { hp: 50, hostile: true, speed: 2.4, dmg: 8 },
   zombified_piglin: { hp: 20, hostile: true, speed: 2.1, dmg: 5 },
+  custom_boss: { hp: 240, hostile: true, speed: 2.6, dmg: 10 },
 };
 
 export function spawnMob(kind: MobKind, x: number, y: number, z: number, scene: THREE.Scene): Mob {
@@ -563,7 +578,8 @@ export function updateMobs(
       m.kind === "evoker" ||
       m.kind === "piglin_brute" ||
       m.kind === "guardian" ||
-      m.kind === "breeze";
+      m.kind === "breeze" ||
+      m.kind === "custom_boss";
     const agr = rules?.aggression ?? 1;
     const see = dist < 28 * Math.max(0.45, agr);
     const aggro =
@@ -706,6 +722,29 @@ function tickDuelist(
   else if (dist < 0.85) close = -2.6;
   m.vx = nx * close + sx * strafe;
   m.vz = nz * close + sz * strafe;
+  const arena = world.arena;
+  const voidMap = arena === "skywars" || arena === "bedwars";
+  if (voidMap && (m.lastHurt ?? 0) <= 0.2) {
+    const lookX = m.x + m.vx * 0.32;
+    const lookZ = m.z + m.vz * 0.32;
+    const gAhead = world.highestSolid(lookX, lookZ);
+    if (gAhead < 20 || m.y - gAhead > 2.8) {
+      const lx = -nz;
+      const lz = nx;
+      const gL = world.highestSolid(m.x + lx * 0.9, m.z + lz * 0.9);
+      const gR = world.highestSolid(m.x - lx * 0.9, m.z - lz * 0.9);
+      if (gL >= 20 && m.y - gL <= 2.8) {
+        m.vx = lx * speed;
+        m.vz = lz * speed;
+      } else if (gR >= 20 && m.y - gR <= 2.8) {
+        m.vx = -lx * speed;
+        m.vz = -lz * speed;
+      } else {
+        m.vx = 0;
+        m.vz = 0;
+      }
+    }
+  }
   m.vy -= 28 * dt;
   if (dist < 3.4 && m.vy <= 0.05 && m.age % Math.max(0.45, 0.85 - lv * 0.003) < dt * 2.2) m.vy = 7.1;
   m.x += m.vx * dt;
@@ -747,7 +786,7 @@ function tickDuelist(
 }
 
 function collides(world: World, m: Mob): boolean {
-  const w = m.kind === "dragon" || m.kind === "wither_storm" ? 2 : m.kind === "golem" || m.kind === "ravager" || m.kind === "warden" ? 0.7 : m.kind === "hoglin" ? 0.6 : 0.4;
+  const w = m.kind === "dragon" || m.kind === "wither_storm" || m.kind === "custom_boss" ? 2 : m.kind === "golem" || m.kind === "ravager" || m.kind === "warden" ? 0.7 : m.kind === "hoglin" ? 0.6 : 0.4;
   const h =
     m.kind === "enderman" || m.kind === "warden"
       ? 2.8

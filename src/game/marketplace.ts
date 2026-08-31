@@ -1,4 +1,4 @@
-import { compileGame, loadGames } from "./scratch";
+import { compileGame, detectXpFarm, loadGames } from "./scratch";
 import { buyMarketSkin, loadMarket, resolveSkin, saveLiveSkin, type MarketSkin, type SkinData } from "./skins";
 import { loadWorlds, newWorldMeta, persistAccountProfile, saveProfile, type Profile } from "./save";
 import type { GameMode, WorldMeta } from "./types";
@@ -106,7 +106,7 @@ export function communitySkins(): CatalogItem[] {
 
 export function communityGames(): CatalogItem[] {
   return loadGames()
-    .filter((g) => g.published && (g.publishMode === "market" || !g.publishMode))
+    .filter((g) => g.published && (g.publishMode === "market" || !g.publishMode) && !detectXpFarm(g).farm)
     .map((g) => ({
       id: `game-${g.id}`,
       kind: "game" as const,

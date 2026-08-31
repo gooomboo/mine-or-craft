@@ -179,6 +179,22 @@ export class Input {
     this.forced = new Set(codes);
   }
 
+  releaseAll() {
+    this.keys.clear();
+    this.forced.clear();
+    this.lookDX = 0;
+    this.lookDY = 0;
+    this.touchMove = { x: 0, y: 0 };
+    this.touchLook = { x: 0, y: 0 };
+    this.touchJump = false;
+    this.touchSneak = false;
+    this.touchAttack = false;
+    this.touchUse = false;
+    this.touchSprint = false;
+    this.touchBlock = false;
+    this.prev = empty();
+  }
+
   poll(): Actions {
     const a = empty();
     const b = this.binds;

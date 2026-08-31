@@ -86,6 +86,9 @@ export interface WorldMeta {
   arena?: ArenaId;
   modJson?: string;
   spawnBiome?: string;
+  author?: string;
+  labGame?: boolean;
+  xpFarm?: boolean;
 }
 
 export interface PlayerSave {

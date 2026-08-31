@@ -1,5 +1,5 @@
 import type { Actions } from "./input";
-import { BLOCKS, BLUE_ICE, COBWEB, HAY, HONEY_BLOCK, ICE, isFluid, isSolid, LADDER, PACKED_ICE, SLIME_BLOCK, SOUL_SAND, WATER } from "./blocks";
+import { BLOCKS, BLUE_ICE, CACTUS, COBWEB, HAY, HONEY_BLOCK, ICE, isFluid, isSolid, LADDER, MAGMA, PACKED_ICE, SLIME_BLOCK, SOUL_SAND, WATER } from "./blocks";
 import type { World } from "./world";
 import type { Dim, Difficulty, GameMode, Slot } from "./types";
 import { ELYTRA, getDef } from "./items";
@@ -172,8 +172,9 @@ export class Player {
     else this.wet = Math.max(0, this.wet - dt * 1.6);
 
     const chest = this.armor[1]?.id;
-    if (chest === ELYTRA && !this.onGround && !this.inWater && !this.flying && this.vy < -0.55) {
-      if (input.jump || this.gliding) this.gliding = true;
+    if (chest === ELYTRA && !this.onGround && !this.inWater && !this.flying) {
+      if (input.justJump) this.gliding = true;
+      else if (this.vy < -0.35 && (input.jump || this.gliding)) this.gliding = true;
     }
     if (this.onGround || this.inWater || this.flying) this.gliding = false;
 
@@ -189,19 +190,20 @@ export class Player {
       this.vy = (input.jump ? 1 : 0) * speed - (input.sneak ? 1 : 0) * speed;
     } else if (this.gliding) {
       const look = this.lookDir();
-      this.vy -= 4.2 * dt;
-      this.vx += look.x * 22 * dt;
-      this.vz += look.z * 22 * dt;
-      this.vy += look.y * 16 * dt;
+      const dive = Math.max(0, -look.y);
+      this.vy -= (3.1 + dive * 16) * dt;
+      this.vx += look.x * (20 + dive * 24) * dt;
+      this.vz += look.z * (20 + dive * 24) * dt;
+      this.vy += look.y * (14 + dive * 10) * dt;
       const sp = Math.hypot(this.vx, this.vy, this.vz);
-      const cap = 28;
+      const cap = 32;
       if (sp > cap) {
         this.vx *= cap / sp;
         this.vy *= cap / sp;
         this.vz *= cap / sp;
       }
-      this.vx *= Math.max(0, 1 - 0.35 * dt);
-      this.vz *= Math.max(0, 1 - 0.35 * dt);
+      this.vx *= Math.max(0, 1 - 0.22 * dt);
+      this.vz *= Math.max(0, 1 - 0.22 * dt);
     } else if (this.inWater || this.inLava) {
       this.vx += (wishX * speed - this.vx) * 4 * dt;
       this.vz += (wishZ * speed - this.vz) * 4 * dt;
@@ -398,6 +400,15 @@ export class Player {
     } else this.air = 10;
     const below = world.getBlock(Math.floor(this.x), Math.floor(this.y - 0.05), Math.floor(this.z));
     if (below === 76 && this.fireResT <= 0) this.hurtBy(2 * dt, "fire");
+    if (below === MAGMA && this.fireResT <= 0 && !this.sneaking) this.hurtBy(3 * dt, "magma");
+    const feet = world.getBlock(Math.floor(this.x), Math.floor(this.y), Math.floor(this.z));
+    if (feet === CACTUS) this.hurtBy(2 * dt, "cactus");
+    const k = BLOCKS[feet]?.key ?? "";
+    if (k.includes("powder_snow")) {
+      this.vx *= 0.45;
+      this.vz *= 0.45;
+      this.vy *= 0.7;
+    }
   }
 
   armorPoints(): number {
@@ -513,5 +524,23 @@ export class Player {
     if (!s) return;
     s.count -= n;
     if (s.count <= 0) this.inventory[this.hotbar] = null;
+  }
+
+  hasItem(id: number) {
+    return this.inventory.some((s) => s && s.id === id && s.count > 0);
+  }
+
+  takeItem(id: number, n = 1): boolean {
+    let left = n;
+    for (let i = 0; i < 36; i++) {
+      const s = this.inventory[i];
+      if (!s || s.id !== id) continue;
+      const take = Math.min(left, s.count);
+      s.count -= take;
+      left -= take;
+      if (s.count <= 0) this.inventory[i] = null;
+      if (left <= 0) return true;
+    }
+    return left <= 0;
   }
 }

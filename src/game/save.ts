@@ -27,6 +27,7 @@ export interface Profile {
   stars: number;
   diamonds: number;
   clears: number;
+  tosAccepted: boolean;
 }
 
 export const DEFAULT_PROFILE: Profile = {
@@ -45,6 +46,7 @@ export const DEFAULT_PROFILE: Profile = {
   stars: 0,
   diamonds: 0,
   clears: 0,
+  tosAccepted: false,
 };
 
 const SESSION_KEY = "moc.session.v1";
@@ -95,24 +97,60 @@ function saveAccounts(a: Record<string, AccountRec>) {
   }
 }
 
-export function registerAccount(username: string, password: string): { ok: boolean; msg: string; profile: Profile } {
-  const name = username.trim().slice(0, 16) || "Player";
+export function signInAccount(username: string, password: string): { ok: boolean; msg: string; profile: Profile } {
+  const name = username.trim().slice(0, 16);
+  if (!name) return { ok: false, msg: "Pick a username.", profile: { ...DEFAULT_PROFILE } };
+  if (!password) return { ok: false, msg: "Password required.", profile: { ...DEFAULT_PROFILE, username: name } };
   const accounts = loadAccounts();
   const key = name.toLowerCase();
-  if (accounts[key] && password && accounts[key]!.pass !== hashPass(password)) {
+  const rec = accounts[key];
+  if (!rec || !rec.pass) {
+    return { ok: false, msg: "No account with that name. Sign up first.", profile: { ...DEFAULT_PROFILE, username: name } };
+  }
+  if (rec.pass !== hashPass(password)) {
     return { ok: false, msg: "Wrong password for that name.", profile: { ...DEFAULT_PROFILE, username: name } };
   }
-  const existing = accounts[key];
-  const isGuest = !password;
-  const profile: Profile = existing
-    ? { ...DEFAULT_PROFILE, ...existing.profile, username: name, guest: existing.profile.guest && isGuest }
-    : { ...DEFAULT_PROFILE, username: name, guest: isGuest };
-  accounts[key] = { pass: password ? hashPass(password) : existing?.pass ?? "", profile };
-  accounts[key] = { pass: password ? hashPass(password) : existing?.pass ?? "", profile };
+  const profile: Profile = { ...DEFAULT_PROFILE, ...rec.profile, username: name, guest: false };
+  accounts[key] = { pass: rec.pass, profile };
   saveAccounts(accounts);
   saveSession(name);
   saveProfile(profile);
-  return { ok: true, msg: existing ? "Signed in." : "Account ready.", profile };
+  return { ok: true, msg: "Signed in.", profile };
+}
+
+export function signUpAccount(username: string, password: string): { ok: boolean; msg: string; profile: Profile } {
+  const name = username.trim().slice(0, 16);
+  if (!name) return { ok: false, msg: "Pick a username.", profile: { ...DEFAULT_PROFILE } };
+  if (password.length < 4) return { ok: false, msg: "Password needs at least 4 characters.", profile: { ...DEFAULT_PROFILE, username: name } };
+  const accounts = loadAccounts();
+  const key = name.toLowerCase();
+  if (accounts[key]?.pass) {
+    return { ok: false, msg: "That name is taken. Sign in instead.", profile: { ...DEFAULT_PROFILE, username: name } };
+  }
+  const profile: Profile = { ...DEFAULT_PROFILE, username: name, guest: false, tosAccepted: true };
+  accounts[key] = { pass: hashPass(password), profile };
+  saveAccounts(accounts);
+  saveSession(name);
+  saveProfile(profile);
+  return { ok: true, msg: "Account created.", profile };
+}
+
+export function enterGuest(username?: string): Profile {
+  const name = (username?.trim() || "Guest").slice(0, 16);
+  const profile: Profile = { ...DEFAULT_PROFILE, username: name, guest: true, tosAccepted: false };
+  saveSession(`guest:${name}`);
+  saveProfile(profile);
+  return profile;
+}
+
+export function registerAccount(username: string, password: string): { ok: boolean; msg: string; profile: Profile } {
+  if (!password) {
+    return { ok: true, msg: "Guest.", profile: enterGuest(username) };
+  }
+  const accounts = loadAccounts();
+  const key = username.trim().toLowerCase();
+  if (accounts[key]?.pass) return signInAccount(username, password);
+  return signUpAccount(username, password);
 }
 
 export function persistAccountProfile(profile: Profile) {

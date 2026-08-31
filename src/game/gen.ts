@@ -97,6 +97,24 @@ import {
   NETHER_PORTAL,
   BLOCKS,
   CHEST,
+  BRICKS,
+  PRISMARINE,
+  CALCITE,
+  MOSS,
+  BOOKSHELF,
+  HAY,
+  BONE_BLOCK,
+  SLIME_BLOCK,
+  HONEY_BLOCK,
+  GLASS,
+  COAL_BLOCK,
+  LAPIS_BLOCK,
+  EMERALD_BLOCK,
+  COPPER_BLOCK,
+  REDSTONE_BLOCK,
+  SMOOTH_STONE,
+  GOLD_BLOCK,
+  PURPUR,
 } from "./blocks";
 import { BIOMES, pickNether, pickOverworld, type Biome, type BiomeId } from "./biomes";
 import { hash2, hash3, mixSeed, mulberry32 } from "./rng";
@@ -392,6 +410,51 @@ function genCtf(blocks: Uint16Array, biomes: Uint8Array, cx: number, cz: number)
   const blueWool = blockKey("blue_wool", QUARTZ_BLOCK);
   const redBan = blockKey("red_banner", redWool);
   const blueBan = blockKey("blue_banner", blueWool);
+  const palette = [
+    STONE_BRICKS,
+    COBBLE,
+    OAK_PLANKS,
+    BRICKS,
+    SANDSTONE,
+    STONE,
+    BLACKSTONE,
+    DEEPSLATE,
+    QUARTZ_BLOCK,
+    IRON_BLOCK,
+    GOLD_BLOCK,
+    PRISMARINE,
+    TERRACOTTA,
+    GRANITE,
+    DIORITE,
+    ANDESITE,
+    NETHER_BRICKS,
+    PURPUR,
+    END_STONE,
+    MOSS,
+    CALCITE,
+    TUFF,
+    SCULK,
+    AMETHYST,
+    OBSIDIAN,
+    GLOWSTONE,
+    BOOKSHELF,
+    HAY,
+    BONE_BLOCK,
+    SLIME_BLOCK,
+    HONEY_BLOCK,
+    GLASS,
+    SNOW_BLOCK,
+    PACKED_ICE,
+    COAL_BLOCK,
+    LAPIS_BLOCK,
+    EMERALD_BLOCK,
+    COPPER_BLOCK,
+    REDSTONE_BLOCK,
+    SMOOTH_STONE,
+    NETHERRACK,
+    BASALT,
+    CHERRY_LOG,
+  ];
   for (let z = 0; z < CHUNK_W; z++) {
     for (let x = 0; x < CHUNK_W; x++) {
       const wx = cx * CHUNK_W + x;
@@ -399,26 +462,47 @@ function genCtf(blocks: Uint16Array, biomes: Uint8Array, cx: number, cz: number)
       const ax = Math.abs(wx);
       const az = Math.abs(wz);
       set(blocks, x, 0, z, BEDROCK);
-      if (ax > 28 || az > 28) {
+      if (ax > 30 || az > 30) {
         for (let y = 1; y <= 8; y++) set(blocks, x, y, z, LAVA);
         continue;
       }
-      if (ax > 22 || az > 22) {
+      if (ax > 24 || az > 24) {
         for (let y = 1; y <= 40; y++) set(blocks, x, y, z, STONE_BRICKS);
+        if ((wx + wz) % 5 === 0) set(blocks, x, 41, z, GLOWSTONE);
         continue;
       }
       for (let y = 1; y < floor; y++) set(blocks, x, y, z, STONE);
-      set(blocks, x, floor, z, (wx + wz) & 1 ? GRASS : DIRT);
-      if (wz < -8) set(blocks, x, floor, z, redWool);
-      if (wz > 8) set(blocks, x, floor, z, blueWool);
+      const team = wz < -2 ? redWool : wz > 2 ? blueWool : QUARTZ_BLOCK;
+      set(blocks, x, floor, z, (wx + wz) & 1 ? team : STONE_BRICKS);
+      const inBase = (ax <= 3 && az >= 16 && az <= 22) || (ax <= 2 && az <= 2);
+      const gx = Math.floor((wx + 24) / 2);
+      const gz = Math.floor((wz + 24) / 2);
+      const h = Math.floor(hash2(gx * 17 + 9, gz * 31 + 4, 20260901) * 1e9);
+      const pal = palette[Math.abs(h) % palette.length]!;
+      let wall = false;
+      if (!inBase && ax <= 22 && az <= 22) {
+        if (gx % 2 === 1 && gz % 2 === 1) wall = true;
+        else if (gx % 2 === 1) wall = h % 5 > 1;
+        else if (gz % 2 === 1) wall = h % 7 > 2;
+      }
+      if (wall) {
+        const ht = 2 + (Math.abs(h) % 3);
+        for (let y = 1; y <= ht; y++) set(blocks, x, floor + y, z, pal);
+      }
       if (wx === 0 && wz === -18) {
         for (let y = floor + 1; y <= floor + 4; y++) set(blocks, x, y, z, redBan);
+        set(blocks, x, floor, z, redWool);
       }
       if (wx === 0 && wz === 18) {
         for (let y = floor + 1; y <= floor + 4; y++) set(blocks, x, y, z, blueBan);
+        set(blocks, x, floor, z, blueWool);
       }
-      if (wx === 0 && wz === 0) set(blocks, x, floor, z, QUARTZ_BLOCK);
-      if (ax === 0 && az === 0) set(blocks, x, floor + 1, z, GLOWSTONE);
+      if (wx === 0 && wz === 0) {
+        set(blocks, x, floor, z, QUARTZ_BLOCK);
+        set(blocks, x, floor + 1, z, GLOWSTONE);
+      }
+      if ((wx === 2 || wx === -2) && (wz === -18 || wz === 18)) set(blocks, x, floor + 1, z, CHEST);
+      if (wx % 8 === 0 && wz % 8 === 0 && ax < 20 && az < 20 && !wall) set(blocks, x, floor + 6, z, GLOWSTONE);
     }
   }
 }

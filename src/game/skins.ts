@@ -300,7 +300,58 @@ export function saveMarket(list: MarketSkin[]) {
   }
 }
 
+export function scanSkinSafe(skin: SkinData): { ok: boolean; msg: string } {
+  const data = withPixels(skin);
+  const px = data.pixels ?? {};
+  const skinTone = hexToNum(data.skin);
+  const isSkinish = (c: number) => {
+    const r = (c >> 16) & 255;
+    const g = (c >> 8) & 255;
+    const b = c & 255;
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const sat = max === 0 ? 0 : (max - min) / max;
+    const pink = r > 140 && g > 40 && g < 170 && b > 40 && b < 170 && r > g + 20 && r > b;
+    const flesh = r > 90 && g > 50 && b > 30 && r >= g && g >= b - 20 && sat < 0.65 && r - b > 20;
+    return pink || flesh;
+  };
+  const body = px["body:front"] ?? [];
+  if (body.length >= 8 * 12) {
+    let skinCount = 0;
+    let hot = 0;
+    let clothed = 0;
+    for (let y = 0; y < 12; y++) {
+      for (let x = 0; x < 8; x++) {
+        const c = body[y * 8 + x] ?? 0;
+        if (isSkinish(c) || Math.abs(c - skinTone) < 0x202020) skinCount++;
+        else clothed++;
+        if (y >= 8 && x >= 2 && x <= 5 && isSkinish(c)) {
+          const r = (c >> 16) & 255;
+          const g = (c >> 8) & 255;
+          if (r > 160 && g < 120) hot++;
+        }
+      }
+    }
+    const nude = skinCount > clothed * 1.4 && skinCount > 48;
+    if (hot >= 6 || nude) {
+      return { ok: false, msg: "Safety scan blocked this skin. Keep it family-friendly." };
+    }
+  }
+  const legs = (px["legL:front"] ?? []).concat(px["legR:front"] ?? []);
+  let legHot = 0;
+  for (const c of legs) {
+    const r = (c >> 16) & 255;
+    const g = (c >> 8) & 255;
+    const b = c & 255;
+    if (r > 180 && g < 110 && b < 130) legHot++;
+  }
+  if (legHot > 18) return { ok: false, msg: "Safety scan blocked this skin. Keep it family-friendly." };
+  return { ok: true, msg: "Scan passed." };
+}
+
 export function publishSkin(skin: SkinData, seller: string, price: number): { ok: boolean; msg: string } {
+  const scan = scanSkinSafe(skin);
+  if (!scan.ok) return scan;
   const list = loadMarket();
   const id = `m-${Date.now()}`;
   const p = Math.max(10, Math.min(5000, Math.floor(price) || 50));
