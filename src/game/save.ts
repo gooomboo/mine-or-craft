@@ -364,3 +364,9 @@ export function newWorldMeta(name: string, seed: number, mode: GameMode, cheats:
     code: id.replace(/[^a-zA-Z0-9_-]/g, "").slice(0, 16),
   };
 }
+
+/** Cloudflare bundler must see these names as exports (login + guest). */
+void signInAccount;
+void signUpAccount;
+void enterGuest;
+

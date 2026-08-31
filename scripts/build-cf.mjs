@@ -20,6 +20,27 @@ function run(cmd, args) {
   if (r.status) process.exit(r.status ?? 1);
 }
 
+function mustContain(file, needle) {
+  const p = join(root, file);
+  if (!existsSync(p)) {
+    console.error(`[build:cf] missing ${file}`);
+    process.exit(1);
+  }
+  const text = readFileSync(p, "utf8");
+  if (!text.includes(needle)) {
+    console.error(`[build:cf] ${file} (${text.length} bytes) does not contain ${JSON.stringify(needle)}`);
+    console.error(text.slice(0, 180).replace(/\n/g, "\\n"));
+    process.exit(1);
+  }
+  console.log(`[build:cf] ok ${file} (${text.length} bytes) has ${needle}`);
+}
+
+mustContain("src/game/save.ts", "export function enterGuest");
+mustContain("src/game/save.ts", "export function signInAccount");
+mustContain("src/game/save.ts", "export function signUpAccount");
+mustContain("src/game/blocks.ts", "export function labBlockList");
+console.log("[build:cf] stamp cf-2026-08-30-v3");
+
 const esbuildInstall = join(root, "node_modules/esbuild/install.js");
 if (existsSync(esbuildInstall)) {
   spawnSync(process.execPath, [esbuildInstall], { stdio: "inherit" });

@@ -1094,3 +1094,7 @@ export function blockStyle(id: number): string {
   if (BLOCKS[id]?.tool === "pickaxe") return "stone";
   return BLOCKS[id]?.category ?? "stone";
 }
+
+/** Cloudflare bundler must see this name as an export (Game Lab palette). */
+void labBlockList;
+
