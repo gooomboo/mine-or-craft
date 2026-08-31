@@ -36,28 +36,33 @@ Your computer is the Minecraft-style server when you click **Host**. Cloudflare 
 
 ### 1. GitHub
 
-Repo is [gooomboo/mine-or-craft](https://github.com/gooomboo/mine-or-craft). To refresh it from this project:
+Repo is [gooomboo/mine-or-craft](https://github.com/gooomboo/mine-or-craft). Push the `main` branch. Do **not** commit `node_modules`, `.env`, or `.vercel`.
 
-1. Install GitHub Desktop or `git`.
-2. Push the `main` branch. Do **not** commit `node_modules`, `.env`, or `.vercel`.
+### 2. Cloudflare Pages — copy these fields exactly
 
-### 2. Cloudflare Pages (the host that will not bug out)
+The last failed deploy (`#c0ed1e75` on commit `5505e1f`) had two problems:
 
-1. [dash.cloudflare.com](https://dash.cloudflare.com) → **Workers & Pages** → **Create** → **Pages** → **Connect to Git**.
-2. Pick `gooomboo/mine-or-craft`.
-3. Build settings — copy these exactly:
+1. That commit did not have a working `build:cf` (it ran the Vercel/Nitro build).
+2. **Deploy command** was set to `npx wrangler deploy`. Leave that blank.
+
+Create a **Pages** project (Workers & Pages → Create → Pages → Connect to Git), pick `gooomboo/mine-or-craft`, then:
 
 | Field | Value |
 | --- | --- |
 | Framework preset | None |
 | Build command | `npm run build:cf` |
-| Output directory | `dist/client` |
+| **Output directory** | `dist/client` |
 | Root directory | `/` (leave default) |
-| Node version | `22` (Settings → Environment variables → `NODE_VERSION=22`) |
+| **Deploy command** | *(empty — delete `npx wrangler deploy` if it is filled)* |
+| Node version | Settings → Environment variables → `NODE_VERSION` = `22` |
 
-4. **Do not set `DATABASE_URL`.** That pulls in Postgres/PGLite and is the #1 Cloudflare crash for this game.
-5. **Do not** upload the `.vercel` folder or change the nitro preset. Pages only needs the static client + `functions/api/rtc.js`.
-6. Deploy. If the site 404s, edit the project and set Output directory to `dist` instead of `dist/client`, then retry.
+**Do not set `DATABASE_URL`.** That is the #1 Cloudflare crash for this game.
+
+**Do not** upload `.vercel` or change the nitro preset. Pages only needs the static client + `functions/api/rtc.js`.
+
+Then **Retry build** on the latest `main` (not an old commit like `5505e1f`).
+
+If the site 404s, edit the project and set Output directory to `dist` instead of `dist/client`, then retry.
 
 Online join codes use `functions/api/rtc.js` (in-memory signaling, no database). Host a world, share the code, friends open the same Cloudflare URL and paste it.
 
@@ -65,9 +70,10 @@ Online join codes use `functions/api/rtc.js` (in-memory signaling, no database).
 
 - Setting `DATABASE_URL` or running `npm run db:migrate` on Pages.
 - Pointing wrangler at the Vercel nitro output.
-- `html_handling: "none"` (old wrangler) — this project no longer uses it.
+- Filling **Deploy command** with `npx wrangler deploy` on a Pages project.
 - Buying a Java/Bedrock Minecraft host. That protocol is not this game.
 - GitHub Pages **alone** — the static game works, but `/api/rtc` 404s so Online cannot connect. Use Cloudflare Pages so the Function exists.
+- Building from an old commit that does not have `scripts/build-cf.mjs`.
 
 ### After it is live
 
@@ -84,13 +90,7 @@ Guests can join and play. They cannot publish skins or Game Lab packs.
 
 Signed-in players only. Folder list of packs. Visual scripts (events + actions), commands, display text, entity data, 16×16 block pixel art, custom sounds, bosses, overworld spawn biomes.
 
-**Events that actually fire**
-
-- when world starts
-- when a player joins (you, on Play / Playtest)
-- when player dies / is hurt / gets a kill
-- when player uses an item / places a block / chats
-- every [n] seconds
+100+ events and actions (jump, swim, boats, kits, cages, weather, bosses, …). Search the list. Play / Playtest runs start and join the moment you enter the world.
 
 **Share modes**
 

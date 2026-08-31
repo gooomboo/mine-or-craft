@@ -139,6 +139,24 @@
   font-feature-settings: "tnum";
 }
 
+.mc-meter {
+  width: min(22rem, 90vw);
+  height: 1rem;
+  border: 2px solid #000;
+  background: #141414;
+  box-shadow:
+    inset 1px 1px 0 #000,
+    2px 2px 0 #0006;
+  overflow: hidden;
+}
+
+.mc-meter > i {
+  display: block;
+  height: 100%;
+  background: linear-gradient(#c8ee62, #5a9a28);
+  box-shadow: inset 0 2px 0 #e8ff9a88;
+}
+
 .mc-pano-strip {
   display: flex;
   width: 1600%;
@@ -723,6 +741,16 @@
     inset 3px 3px 0 #5a4a38,
     inset -3px -3px 0 #0a0806,
     0 18px 48px #000a;
+}
+
+@media (min-width: 860px) {
+  .mc-menu-stack {
+    max-width: 440px;
+    padding: 1.35rem 1.5rem;
+  }
+  .mc-logo-3d {
+    filter: drop-shadow(0 10px 0 #0008);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

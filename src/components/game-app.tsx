@@ -54,7 +54,10 @@ export function GameApp() {
     return () => document.body.classList.remove("moc-keys");
   }, [scheme]);
   return (
-    <div className="relative h-dvh w-full overflow-hidden bg-bg text-fg">
+    <div
+      className="relative h-dvh w-full overflow-hidden bg-bg text-fg"
+      onPointerDown={() => getEngine()?.audio.unlock()}
+    >
       {phase === "playing" || phase === "loading" ? <PlayView /> : <MenuShell />}
     </div>
   );
@@ -66,7 +69,7 @@ function MenuShell() {
   const guest = useApp((s) => s.profile.guest);
   return (
     <div className="relative flex h-full flex-col">
-      <TitlePano />
+      {phase !== "boot" && <TitlePano />}
       <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-b from-black/25 via-transparent to-black/55" />
       <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-none">
         {phase === "boot" && <BootScreen />}
@@ -275,9 +278,8 @@ function BootScreen() {
       "Checking last session…",
       "Ready.",
     ];
-    const start = performance.now();
-    const total = 2600;
-    let raf = 0;
+    const start = Date.now();
+    const total = 2800;
     let done = false;
     const finish = () => {
       if (done) return;
@@ -286,17 +288,17 @@ function BootScreen() {
       setMsg("Ready.");
       setPhase("login");
     };
-    const tick = (now: number) => {
-      const t = Math.min(1, (now - start) / total);
-      setPct(Math.round(t * 100));
+    const tick = () => {
+      const t = Math.min(1, (Date.now() - start) / total);
+      setPct(Math.max(2, Math.round(t * 100)));
       setMsg(steps[Math.min(steps.length - 1, Math.floor(t * steps.length))]!);
       if (t >= 1) finish();
-      else raf = requestAnimationFrame(tick);
     };
-    raf = requestAnimationFrame(tick);
-    const failSafe = window.setTimeout(finish, 4200);
+    tick();
+    const id = window.setInterval(tick, 40);
+    const failSafe = window.setTimeout(finish, 3600);
     return () => {
-      cancelAnimationFrame(raf);
+      window.clearInterval(id);
       window.clearTimeout(failSafe);
     };
   }, [setPhase]);
@@ -307,11 +309,14 @@ function BootScreen() {
         <span className="block text-[#3f3]">OR CRAFT</span>
       </h1>
       <p className="mt-8 text-sm text-fg/90">{msg}</p>
-      <div className="mt-4 h-3 w-full max-w-sm border-2 border-black bg-slot-dark">
-        <div className="h-full bg-xp transition-[width] duration-200" style={{ width: `${pct}%` }} />
+      <div className="mc-meter mt-4">
+        <i style={{ width: `${pct}%` }} />
       </div>
       <p className="hud-num mt-2 text-sm text-xp">{pct}%</p>
-      <p className="mt-8 text-[11px] tracking-widest text-muted">v1.0</p>
+      <button type="button" className="mt-4 text-xs text-muted" onClick={() => setPhase("login")}>
+        Skip
+      </button>
+      <p className="mt-6 text-[11px] tracking-widest text-muted">v1.0</p>
     </div>
   );
 }
@@ -710,6 +715,7 @@ function Lobby() {
   const setJoinCode = useApp((s) => s.setJoinCode);
   const upsert = useApp((s) => s.upsertWorld);
   const [price, setPrice] = useState(0);
+  const [note, setNote] = useState("");
   const published = worlds.filter((w) => w.published);
   return (
     <div className="mx-auto flex h-full w-full max-w-lg flex-col px-5 py-6">
@@ -749,25 +755,28 @@ function Lobby() {
         </button>
       </div>
       <h3 className="mb-2 text-sm font-medium">Publish a world</h3>
+      {worlds.length === 0 && <p className="mb-3 text-sm text-muted">Create a local world first, then come back to list it.</p>}
+      {note && <p className="mb-2 text-sm text-xp">{note}</p>}
       <div className="mb-4 space-y-2 overflow-y-auto">
         {worlds.slice(0, 6).map((w) => (
           <div key={w.id} className="mc-panel flex items-center justify-between gap-2 px-3 py-2">
             <span className="text-sm">
               {w.name}
-              <span className="block text-xs text-muted">{w.code}</span>
+              <span className="block text-xs text-muted">{w.published ? "Listed on Marketplace" : w.code}</span>
             </span>
             <button
               type="button"
-              className="mc-btn min-h-11 px-3 text-sm"
+              className={`mc-btn min-h-11 px-3 text-sm ${w.published ? "mc-btn-primary" : ""}`}
               onClick={() => {
                 if (profile.guest) {
-                  alert("Guests cannot publish. Sign in first.");
+                  setNote("Guests cannot publish. Sign in first.");
                   return;
                 }
-                upsert({ ...w, published: true, priceXp: price });
+                upsert({ ...w, published: true, priceXp: price }, { select: false });
+                setNote(`Listed "${w.name}" on Marketplace${price ? ` for ${price} XP` : " (free)"}. Open Marketplace to see it.`);
               }}
             >
-              Publish
+              {w.published ? "Listed" : "Publish"}
             </button>
           </div>
         ))}
@@ -908,8 +917,8 @@ function PlayView() {
         <div className="mc-dirt-load absolute inset-0 z-40 flex flex-col items-center justify-center px-6">
           <h2 className="pixel-title text-3xl sm:text-4xl">MINE OR CRAFT</h2>
           <p className="mt-5 text-center text-sm text-fg/90">{loadingMsg}</p>
-          <div className="mt-4 h-3 w-full max-w-sm border-2 border-black bg-slot-dark">
-            <div className="h-full bg-xp transition-[width] duration-150" style={{ width: `${pct}%` }} />
+          <div className="mc-meter mt-4">
+            <i style={{ width: `${pct}%` }} />
           </div>
           <p className="hud-num mt-2 text-sm text-xp">{pct}%</p>
           <p className="mt-6 max-w-xs text-center text-xs text-muted">

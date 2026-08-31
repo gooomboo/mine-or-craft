@@ -129,9 +129,13 @@ export class Engine {
   playXpT = 0;
   playXpBatch = 0;
   scriptScore = 0;
+  labCheck: { x: number; y: number; z: number } | null = null;
   modScripts: { when: string; every: number; do: { op: string; id?: number; count?: number; text?: string; kind?: string; value?: number }[]; t: number }[] = [];
   customSounds: { name: string; dataUrl: string }[] = [];
   labHurtLatch = false;
+  labSneak = false;
+  labSprint = false;
+  labSwim = false;
   studio = { fly: false, god: false, fullbright: false, speed: false, freeze: false, hitboxes: false };
   saveTimer = 0;
   afk = 0;
@@ -464,7 +468,7 @@ export class Engine {
     await this.world.streamAroundYielding(
       this.player.x,
       this.player.z,
-      this.settings.renderDistance,
+      Math.min(this.settings.renderDistance, 4),
       this.dim,
       this.hooks.onProgress,
     );
@@ -478,7 +482,8 @@ export class Engine {
     }
     this.hooks.onProgress?.("Finding a safe foothold…", 0.94);
     this.seatPlayer(!!save);
-    this.world.flushMeshes(this.settings.ao, 20);
+    this.world.streamAround(this.player.x, this.player.z, this.settings.renderDistance, this.dim);
+    this.world.flushMeshes(this.settings.ao, 28);
     this.hooks.onProgress?.("Lighting the sky…", 0.97);
     this.applyDimVisuals();
     if (this.meta.modJson && !isArena(this.meta.arena)) this.applyModJson();
@@ -1090,6 +1095,7 @@ export class Engine {
         }
         else if (this.player.eat()) {
           this.audio.eat();
+          this.runScripts("eat");
           if (heldId === CHORUS_FRUIT) this.chorusWarp();
         }
       }
@@ -1102,11 +1108,24 @@ export class Engine {
       this.trauma = Math.min(1, this.trauma + 0.08);
       this.player.squash = 0.72;
       this.audio.land();
+      this.runScripts("land");
     }
-    if (!this.player.onGround && this.wasOnGround && this.player.vy > 4) this.audio.jump();
+    if (!this.player.onGround && this.wasOnGround && this.player.vy > 4) {
+      this.audio.jump();
+      this.runScripts("jump");
+    }
     if (this.player.sprinting && this.player.onGround && Math.random() < dt * 8) {
       this.burst(this.player.x, this.player.y + 0.05, this.player.z, 0xc4b48a);
     }
+    if (this.player.sneaking && !this.labSneak) this.runScripts("sneak");
+    this.labSneak = this.player.sneaking;
+    if (this.player.sprinting && !this.labSprint) this.runScripts("sprint");
+    this.labSprint = this.player.sprinting;
+    if (this.player.inWater && !this.labSwim) {
+      this.runScripts("swim");
+      this.audio.splash();
+    }
+    this.labSwim = this.player.inWater;
     this.wasOnGround = this.player.onGround;
     this.camPunch = Math.max(0, this.camPunch - dt * 3.2);
     this.hitFlash = Math.max(0, this.hitFlash - dt * 4);
@@ -1245,6 +1264,7 @@ export class Engine {
     if (!def || def.hardness < 0) return;
     this.world.setBlock(x, y, z, 0);
     this.audio.break();
+    this.runScripts("break");
     this.burst(x + 0.5, y + 0.5, z + 0.5, def.tint);
     if (this.player.mode !== "creative") {
       const tool = getDef(this.player.selected?.id ?? 0);
@@ -1261,6 +1281,7 @@ export class Engine {
     const kind = blockKind(id);
     if (id === CRAFTING_TABLE || kind === "craft") {
       this.setOverlay("crafting");
+      this.runScripts("craft");
       return;
     }
     if (id === FURNACE || kind === "furnace") {
@@ -1275,6 +1296,7 @@ export class Engine {
     if (kind === "chest") {
       this.setOverlay("inventory");
       this.toastMsg("Chest opened.");
+      this.runScripts("open");
       return;
     }
     if (kind === "door" || kind === "trapdoor" || kind === "gate") {
@@ -1534,6 +1556,7 @@ export class Engine {
     this.dim = d;
     this.player.dim = d;
     this.world.dim = d;
+    this.runScripts(d === "nether" ? "nether" : d === "end" ? "end" : "portal");
     if (d === "nether") {
       this.player.x = this.player.x / 8;
       this.player.z = this.player.z / 8;
@@ -1747,9 +1770,63 @@ export class Engine {
 
   private runOps(ops: { op: string; id?: number; count?: number; text?: string; kind?: string; value?: number }[]) {
     for (const op of ops) {
+      const n = Math.max(1, op.count || 1);
+      const on = (op.value ?? 1) !== 0;
+      const px = Math.floor(this.player.x);
+      const py = Math.floor(this.player.y);
+      const pz = Math.floor(this.player.z);
       if (op.op === "say" && op.text) this.toastMsg(op.text);
-      else if (op.op === "give" && op.id) this.player.give(op.id, Math.max(1, op.count || 1));
-      else if (op.op === "spawn" && op.kind) {
+      else if (op.op === "broadcast" || op.op === "msg" || op.op === "tellraw" || op.op === "title") this.toastMsg(op.text || "!");
+      else if (op.op === "countdown") this.toastMsg(`${n}…`);
+      else if (op.op === "give" && op.id) this.player.give(op.id, n);
+      else if (op.op === "giveall" && op.id) {
+        for (let i = 0; i < 9; i++) this.player.inventory[i] = { id: op.id, count: 64 };
+      } else if (op.op === "kit") {
+        this.player.give(10023, 1);
+        this.player.give(10031, 1);
+        this.player.give(10055, 4);
+        this.player.give(10049, 16);
+      } else if (op.op === "armor") {
+        this.player.armor = [
+          { id: 10089, count: 1 },
+          { id: 10090, count: 1 },
+          { id: 10091, count: 1 },
+          { id: 10092, count: 1 },
+        ];
+        this.dressPlayer(true);
+      } else if (op.op === "totem") this.player.offhand = { id: 10105, count: 1 };
+      else if (op.op === "pearl") this.player.give(10061, n);
+      else if (op.op === "bow") {
+        this.player.give(10032, 1);
+        this.player.give(10033, 32);
+      } else if (op.op === "shield") this.player.offhand = { id: 10031, count: 1 };
+      else if (op.op === "food") this.player.give(10049, n);
+      else if (op.op === "torch") this.player.give(42, n);
+      else if (op.op === "blocks") {
+        this.player.give(19, 64);
+        this.player.give(1, 64);
+        this.player.give(18, 64);
+      } else if (op.op === "diamond") this.player.give(10040, n);
+      else if (op.op === "netherite") {
+        this.player.give(10024, 1);
+        this.player.armor = [
+          { id: 10093, count: 1 },
+          { id: 10094, count: 1 },
+          { id: 10095, count: 1 },
+          { id: 10096, count: 1 },
+        ];
+        this.dressPlayer(true);
+      } else if (op.op === "elytra") {
+        this.player.armor[1] = { id: 10106, count: 1 };
+        this.player.give(10107, 16);
+        this.dressPlayer(true);
+      } else if (op.op === "boat") this.placeBoat(this.player.x, this.player.y, this.player.z + 2, 10101);
+      else if (op.op === "clear") this.player.inventory = Array.from({ length: 36 }, () => null);
+      else if (op.op === "clearhotbar") {
+        for (let i = 0; i < 9; i++) this.player.inventory[i] = null;
+      } else if (op.op === "fillhotbar" && op.id) {
+        for (let i = 0; i < 9; i++) this.player.inventory[i] = { id: op.id, count: 64 };
+      } else if (op.op === "spawn" && op.kind) {
         try {
           const ang = Math.random() * Math.PI * 2;
           const m = spawnMob(op.kind as MobKind, this.player.x + Math.cos(ang) * 6, this.player.y, this.player.z + Math.sin(ang) * 6, this.scene);
@@ -1757,37 +1834,6 @@ export class Engine {
         } catch {
           /* */
         }
-      } else if (op.op === "health") this.player.health = Math.max(1, Math.min(20, op.count || 20));
-      else if (op.op === "time") this.worldTime = (op.value ?? 1) ? DAY_LEN * 0.28 : DAY_LEN * 0.75;
-      else if (op.op === "xp") this.addXp(Math.max(1, op.count || 1));
-      else if (op.op === "pvp") this.modRules.pvp = (op.value ?? 1) !== 0;
-      else if (op.op === "keep") this.modRules.keepInventory = (op.value ?? 1) !== 0;
-      else if (op.op === "score") {
-        this.scriptScore++;
-        this.toastMsg(`Score ${this.scriptScore}`);
-      } else if (op.op === "win") {
-        this.addXp(40);
-        this.hooks.onWin();
-        this.setOverlay("credits");
-      } else if (op.op === "tellraw" || op.op === "title") this.toastMsg(op.text || this.meta.modJson?.slice(0, 40) || "!");
-      else if (op.op === "tp" && op.text) {
-        const n = op.text.split(/[ ,]+/).map(Number);
-        if (n.length >= 3 && n.every(Number.isFinite)) {
-          this.player.x = n[0]!;
-          this.player.y = n[1]!;
-          this.player.z = n[2]!;
-        }
-      } else if (op.op === "gamemode" && op.text) {
-        const m = op.text as GameMode;
-        if (m === "survival" || m === "creative" || m === "adventure" || m === "spectator") this.player.mode = m;
-      } else if (op.op === "weather") this.weather = (op.value ?? 1) ? 1 : 0;
-      else if (op.op === "setblock" && op.id) {
-        this.world.setBlock(Math.floor(this.player.x), Math.floor(this.player.y), Math.floor(this.player.z + 2), op.id);
-      } else if (op.op === "fill" && op.id) {
-        const bx = Math.floor(this.player.x);
-        const by = Math.floor(this.player.y);
-        const bz = Math.floor(this.player.z);
-        for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) this.world.setBlock(bx + dx, by, bz + dz + 3, op.id);
       } else if (op.op === "boss" && op.kind) {
         try {
           const m = spawnMob(op.kind as MobKind, this.player.x + 14, this.player.y + 8, this.player.z, this.scene);
@@ -1797,13 +1843,168 @@ export class Engine {
         }
       } else if (op.op === "kill") {
         for (const m of this.mobs) if (m.kind !== "wraith") m.hp = 0;
-      } else if (op.op === "spawnpoint") {
-        this.meta.spawn = { x: this.player.x, y: this.player.y, z: this.player.z };
-      } else if (op.op === "particle") this.burst(this.player.x, this.player.y + 1, this.player.z, 0x5adce6);
-      else if (op.op === "sound") this.audio.playNamed(op.text || "", this.customSounds);
-      else if (op.op === "gamerule" && op.text) {
+      } else if (op.op === "anger") {
+        for (const m of this.mobs) m.hostile = true;
+      } else if (op.op === "calm") {
+        for (const m of this.mobs) m.hostile = false;
+      } else if (op.op === "health") this.player.health = Math.max(1, Math.min(20, n));
+      else if (op.op === "heal") this.player.health = 20;
+      else if (op.op === "damage") this.player.hurtBy(n, "magic");
+      else if (op.op === "hunger") this.player.hunger = Math.max(0, Math.min(20, n));
+      else if (op.op === "saturation") this.player.hunger = 20;
+      else if (op.op === "absorption") this.player.absorption = n;
+      else if (op.op === "poison") this.player.hurtBy(Math.min(8, n), "magic");
+      else if (op.op === "effect" && op.text) {
+        const t = op.text.toLowerCase();
+        if (t.includes("speed")) this.player.speedT = n;
+        else if (t.includes("jump")) this.player.jumpBoostT = n;
+        else if (t.includes("night")) this.player.nightT = n;
+        else if (t.includes("invis")) this.player.invisT = n;
+        else this.player.speedT = n;
+      } else if (op.op === "speed") this.player.speedT = n;
+      else if (op.op === "jumpboost") this.player.jumpBoostT = n;
+      else if (op.op === "nightvis") this.player.nightT = n;
+      else if (op.op === "invis") this.player.invisT = n;
+      else if (op.op === "fire") this.player.hurtBy(2, "fire");
+      else if (op.op === "extinguish") this.toastMsg("Extinguished.");
+      else if (op.op === "glow") this.player.nightT = Math.max(this.player.nightT, n);
+      else if (op.op === "smite" || op.op === "lightning") {
+        this.explode(this.player.x + 3, this.player.y, this.player.z, 2.2);
+        this.burst(this.player.x + 3, this.player.y + 8, this.player.z, 0xf0f4ff);
+      } else if (op.op === "explode") this.explode(this.player.x + 4, this.player.y, this.player.z, 2.4);
+      else if (op.op === "tnt") this.world.setBlock(px, py, pz + 3, 41);
+      else if (op.op === "firework") this.boostElytra();
+      else if (op.op === "launch") {
+        this.player.vy = 12;
+        this.player.onGround = false;
+      } else if (op.op === "fly") this.player.flying = on;
+      else if (op.op === "god") this.player.invincible = on;
+      else if (op.op === "freeze") this.studio.freeze = true;
+      else if (op.op === "thaw") this.studio.freeze = false;
+      else if (op.op === "hide") this.playerBody.visible = false;
+      else if (op.op === "show") this.playerBody.visible = this.settings.cameraMode !== "first";
+      else if (op.op === "spectate") this.player.mode = "spectator";
+      else if (op.op === "adventure") this.player.mode = "adventure";
+      else if (op.op === "creative") this.player.mode = "creative";
+      else if (op.op === "survival") this.player.mode = "survival";
+      else if (op.op === "time") this.worldTime = on ? DAY_LEN * 0.28 : DAY_LEN * 0.75;
+      else if (op.op === "day") this.worldTime = DAY_LEN * 0.28;
+      else if (op.op === "night") this.worldTime = DAY_LEN * 0.75;
+      else if (op.op === "timeadd") this.worldTime = (this.worldTime + n) % DAY_LEN;
+      else if (op.op === "weather") this.weather = on ? 1 : 0;
+      else if (op.op === "clearsky") this.weather = 0;
+      else if (op.op === "storm") this.weather = 1;
+      else if (op.op === "xp") this.addXp(n);
+      else if (op.op === "xplevel") this.player.xpLevel = n;
+      else if (op.op === "score") {
+        this.scriptScore++;
+        this.toastMsg(`Score ${this.scriptScore}`);
+      } else if (op.op === "addscore") {
+        this.scriptScore += n;
+        this.toastMsg(`Score ${this.scriptScore}`);
+      } else if (op.op === "setscore") {
+        this.scriptScore = n;
+        this.toastMsg(`Score ${this.scriptScore}`);
+      } else if (op.op === "tp" && op.text) {
+        const parts = op.text.split(/[ ,]+/).map(Number);
+        if (parts.length >= 3 && parts.every(Number.isFinite)) {
+          this.player.x = parts[0]!;
+          this.player.y = parts[1]!;
+          this.player.z = parts[2]!;
+        }
+      } else if (op.op === "randomtp") {
+        const s = this.world.findSafeSpawn(this.player.x + (Math.random() - 0.5) * 40, this.player.z + (Math.random() - 0.5) * 40);
+        this.player.x = s.x;
+        this.player.y = s.y;
+        this.player.z = s.z;
+      } else if (op.op === "spawnpoint") this.meta.spawn = { x: this.player.x, y: this.player.y, z: this.player.z };
+      else if (op.op === "checkpoint") this.labCheck = { x: this.player.x, y: this.player.y, z: this.player.z };
+      else if (op.op === "loadcheck" && this.labCheck) {
+        this.player.x = this.labCheck.x;
+        this.player.y = this.labCheck.y;
+        this.player.z = this.labCheck.z;
+      } else if (op.op === "gamemode" && op.text) {
+        const m = op.text as GameMode;
+        if (m === "survival" || m === "creative" || m === "adventure" || m === "spectator") this.player.mode = m;
+      } else if (op.op === "gamerule" && op.text) {
         if (op.text.includes("keepInventory")) this.modRules.keepInventory = true;
         if (op.text.includes("pvp")) this.modRules.pvp = true;
+      } else if (op.op === "pvp") this.modRules.pvp = on;
+      else if (op.op === "keep") this.modRules.keepInventory = on;
+      else if (op.op === "setblock" && op.id) this.world.setBlock(px, py, pz + 2, op.id);
+      else if (op.op === "fill" && op.id) {
+        for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) this.world.setBlock(px + dx, py, pz + dz + 3, op.id);
+      } else if (op.op === "cage") {
+        for (let dy = 0; dy <= 2; dy++) for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) {
+          if (Math.abs(dx) === 1 || Math.abs(dz) === 1 || dy === 2) this.world.setBlock(px + dx, py + dy, pz + dz, 43);
+        }
+      } else if (op.op === "floor") {
+        for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) this.world.setBlock(px + dx, py - 1, pz + dz, 3);
+      } else if (op.op === "wall") {
+        for (let dy = 0; dy <= 3; dy++) for (let dx = -2; dx <= 2; dx++) this.world.setBlock(px + dx, py + dy, pz + 3, 18);
+      } else if (op.op === "platform") {
+        for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) this.world.setBlock(px + dx, py - 1, pz + dz, 19);
+      } else if (op.op === "pillar") {
+        for (let dy = 0; dy < 8; dy++) this.world.setBlock(px + 2, py + dy, pz + 2, 3);
+      } else if (op.op === "house") {
+        for (let dx = -2; dx <= 2; dx++) for (let dz = -2; dz <= 2; dz++) {
+          this.world.setBlock(px + dx + 6, py - 1, pz + dz, 19);
+          if (Math.abs(dx) === 2 || Math.abs(dz) === 2) {
+            this.world.setBlock(px + dx + 6, py, pz + dz, 19);
+            this.world.setBlock(px + dx + 6, py + 1, pz + dz, 19);
+          }
+          this.world.setBlock(px + dx + 6, py + 2, pz + dz, 9);
+        }
+      } else if (op.op === "sphere") {
+        for (let dx = -3; dx <= 3; dx++) for (let dy = 0; dy <= 4; dy++) for (let dz = -3; dz <= 3; dz++) {
+          const d = dx * dx + (dy - 2) * (dy - 2) + dz * dz;
+          if (d >= 8 && d <= 12) this.world.setBlock(px + dx, py + dy, pz + dz, 43);
+        }
+      } else if (op.op === "beacon") {
+        for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) this.world.setBlock(px + dx, py - 1, pz + dz + 4, 14);
+        this.world.setBlock(px, py, pz + 4, 201);
+      } else if (op.op === "water") this.world.setBlock(px, py, pz + 2, 6);
+      else if (op.op === "lava") this.world.setBlock(px + 3, py, pz, 7);
+      else if (op.op === "ice") {
+        for (let dx = -3; dx <= 3; dx++) for (let dz = -3; dz <= 3; dz++) this.world.setBlock(px + dx, py - 1, pz + dz, 21);
+      } else if (op.op === "obsidian") {
+        for (let dx = -1; dx <= 1; dx++) for (let dz = -1; dz <= 1; dz++) this.world.setBlock(px + dx, py - 1, pz + dz, 29);
+      } else if (op.op === "clone") {
+        for (let dx = 0; dx <= 2; dx++) for (let dy = 0; dy <= 2; dy++) {
+          const id = this.world.getBlock(px - 2 + dx, py + dy, pz);
+          this.world.setBlock(px + 3 + dx, py + dy, pz, id);
+        }
+      } else if (op.op === "execute" && op.text) {
+        const t = op.text.trim();
+        if (t.startsWith("/")) this.cheat(t);
+        else this.cheat("/" + t);
+      } else if (op.op === "nbt" && op.text) this.toastMsg(`data ${op.text}`);
+      else if (op.op === "nametag" && op.text) {
+        for (const m of this.mobs) m.label = op.text;
+      } else if (op.op === "sound" || op.op === "playsound") this.audio.playNamed(op.text || "craft", this.customSounds);
+      else if (op.op === "stopsound") {
+        /* */
+      } else if (op.op === "particle") this.burst(this.player.x, this.player.y + 1, this.player.z, 0x5adce6);
+      else if (op.op === "difficulty" && op.text) this.settings.difficulty = op.text as typeof this.settings.difficulty;
+      else if (op.op === "ride") this.tryMountBoat() || this.tryMountCart();
+      else if (op.op === "dismount") this.player.riding = false;
+      else if (op.op === "seed") this.toastMsg(`Seed ${this.meta.seed}`);
+      else if (op.op === "kick") {
+        this.hooks.onOverlay("pause");
+        this.toastMsg("Kicked to pause.");
+      } else if (op.op === "restart") {
+        const s = this.meta.spawn;
+        this.player.x = s.x;
+        this.player.y = s.y;
+        this.player.z = s.z;
+        this.player.health = 20;
+        this.runScripts("respawn");
+      } else if (op.op === "lose") {
+        this.player.health = 0;
+      } else if (op.op === "win") {
+        this.addXp(40);
+        this.hooks.onWin();
+        this.setOverlay("credits");
       }
     }
   }

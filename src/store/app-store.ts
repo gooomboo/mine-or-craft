@@ -1,8 +1,8 @@
 import { create } from "zustand";
 import { DEFAULT_SETTINGS, type CameraMode, type CrosshairStyle, type GameMode, type Settings, type Slot, type WorldMeta } from "@/game/types";
-import { loadProfile, loadSession, loadSettingsRaw, loadWorlds, persistAccountProfile, saveProfile, saveSettingsRaw, saveWorlds, type Profile } from "@/game/save";
+import { loadProfile, loadSettingsRaw, loadWorlds, persistAccountProfile, saveProfile, saveSettingsRaw, saveWorlds, type Profile } from "@/game/save";
 
-export type Phase = "login" | "title" | "menu" | "playhub" | "worlds" | "create" | "lobby" | "skins" | "minigames" | "workshop" | "friends" | "market" | "lab" | "loading" | "playing";
+export type Phase = "boot" | "login" | "title" | "menu" | "playhub" | "worlds" | "create" | "lobby" | "skins" | "minigames" | "workshop" | "friends" | "market" | "lab" | "loading" | "playing";
 export type Overlay =
   | "none"
   | "pause"
@@ -55,6 +55,7 @@ export interface HudSnap {
   dualLevel?: number;
   hitFlash?: number;
   blocking?: boolean;
+  bowCharge?: number;
 }
 
 interface AppState {
@@ -78,7 +79,7 @@ interface AppState {
   setLoading: (m: string, pct?: number) => void;
   setActive: (w: WorldMeta | null) => void;
   refreshWorlds: () => void;
-  upsertWorld: (w: WorldMeta) => void;
+  upsertWorld: (w: WorldMeta, opts?: { select?: boolean }) => void;
   setProfile: (p: Partial<Profile>) => void;
   setSettings: (s: Partial<Settings>) => void;
   setJoinCode: (c: string) => void;
@@ -97,7 +98,7 @@ function readSettings(): Settings {
 }
 
 export const useApp = create<AppState>((set, get) => ({
-  phase: loadSession() ? "title" : "login",
+  phase: "boot",
   overlay: "none",
   profile: loadProfile(),
   settings: readSettings(),
@@ -118,13 +119,14 @@ export const useApp = create<AppState>((set, get) => ({
     set({ loadingMsg, loadingPct: loadingPct ?? get().loadingPct }),
   setActive: (active) => set({ active }),
   refreshWorlds: () => set({ worlds: loadWorlds() }),
-  upsertWorld: (w) => {
+  upsertWorld: (w, opts) => {
     const list = loadWorlds();
     const i = list.findIndex((x) => x.id === w.id);
     if (i >= 0) list[i] = w;
     else list.unshift(w);
     saveWorlds(list);
-    set({ worlds: list, active: w });
+    if (opts?.select === false) set({ worlds: [...list] });
+    else set({ worlds: [...list], active: w });
   },
   setProfile: (p) => {
     const profile = { ...get().profile, ...p };

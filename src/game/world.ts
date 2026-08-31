@@ -410,7 +410,7 @@ export class World {
     };
     const first = tryCol(ox, oz);
     if (first) return first;
-    for (let r = 1; r <= 48; r++) {
+    for (let r = 1; r <= 16; r++) {
       for (let dx = -r; dx <= r; dx++) {
         for (let dz = -r; dz <= r; dz++) {
           if (Math.max(Math.abs(dx), Math.abs(dz)) !== r) continue;

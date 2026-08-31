@@ -87,6 +87,7 @@ export function GameLab() {
   const [texSlot, setTexSlot] = useState(0);
   const [paintColor, setPaintColor] = useState(0x7a9a4a);
   const [paintTool, setPaintTool] = useState<"pen" | "fill">("pen");
+  const [q, setQ] = useState("");
 
   const cur = games.find((g) => g.id === openId) ?? null;
   const folders = useMemo(() => {
@@ -298,14 +299,20 @@ export function GameLab() {
       {tab === "scripts" && (
         <div className="mb-2 flex min-h-0 flex-1 flex-col gap-3 overflow-hidden lg:flex-row">
           <div className="mc-panel max-h-[36vh] min-w-[12rem] overflow-y-auto p-2 lg:max-h-none lg:w-56">
-            <p className="mb-1 text-[10px] tracking-wide text-muted">EVENTS</p>
-            {HATS.map((h) => (
+            <p className="mb-1 text-[10px] tracking-wide text-muted">EVENTS · {HATS.length}</p>
+            <input
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Search events and actions"
+              className="mb-2 min-h-9 w-full border-2 border-black bg-elevated px-2 text-xs"
+            />
+            {HATS.filter((h) => !q || h.label.toLowerCase().includes(q.toLowerCase())).map((h) => (
               <BlockChip key={h.id} color={h.color} onClick={() => addScript(h.id)}>
                 {h.label}
               </BlockChip>
             ))}
-            <p className="mt-2 mb-1 text-[10px] tracking-wide text-muted">ACTIONS</p>
-            {OPS.map((o) => (
+            <p className="mt-2 mb-1 text-[10px] tracking-wide text-muted">ACTIONS · {OPS.length}</p>
+            {OPS.filter((o) => !q || o.label.toLowerCase().includes(q.toLowerCase()) || o.id.includes(q.toLowerCase())).map((o) => (
               <BlockChip key={o.id} color={o.color} onClick={() => addOp(o.id)}>
                 {o.label}
               </BlockChip>
@@ -620,23 +627,24 @@ export function GameLab() {
               return;
             }
             const farm = detectXpFarm(cur);
-            if (farm.farm && cur.publishMode === "market") {
+            if (farm.farm && (cur.publishMode === "market" || cur.publishMode === "private")) {
               setMsg(`Can't list an XP farm. ${farm.reason}`);
               return;
             }
-            persist({ ...cur, published: cur.publishMode === "market", author: profile.username });
+            persist({ ...cur, publishMode: cur.publishMode === "private" ? "market" : cur.publishMode, published: (cur.publishMode === "private" ? "market" : cur.publishMode) === "market", author: profile.username });
+            const mode = cur.publishMode === "private" ? "market" : cur.publishMode;
             setMsg(
-              cur.publishMode === "market"
-                ? `Listed "${cur.name}" on Marketplace for ${cur.priceXp || 0} XP.`
-                : cur.publishMode === "host"
-                  ? "This device will host. Share the join code from Online."
-                  : cur.publishMode === "friends"
+              mode === "market"
+                ? `Listed "${cur.name}" on Marketplace for ${cur.priceXp || 0} XP. Open Marketplace → Games.`
+                : mode === "host"
+                  ? "This device will host. Playtest, then share the join code from Online."
+                  : mode === "friends"
                     ? "Friends can join with your room code. Not listed publicly."
                     : "Saved privately on this device.",
             );
           }}
         >
-          Save share
+          Publish
         </McBtn>
         <McBtn onClick={() => play(cur, cur.publishMode === "host" || cur.publishMode === "friends")}>Playtest</McBtn>
         <McBtn primary onClick={() => play(cur, false)}>

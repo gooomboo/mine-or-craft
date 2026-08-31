@@ -49,11 +49,12 @@ export function Marketplace() {
   const [sort, setSort] = useState<"featured" | "price" | "free">("featured");
   const [msg, setMsg] = useState("");
   const [query, setQuery] = useState("");
-  const catalog = useMemo(() => allCatalog(), [profile.ownedPacks, profile.xp]);
+  const worldsTick = useApp((s) => s.worlds.length);
+  const catalog = useMemo(() => allCatalog(), [profile.ownedPacks, profile.xp, worldsTick]);
 
   const filtered = useMemo(() => {
     let list = catalog;
-    if (tab === "featured") list = list.filter((i) => i.featured || i.freeEvent);
+    if (tab === "featured") list = list.filter((i) => i.featured || i.freeEvent || i.kind === "game" || i.kind === "world");
     else if (tab === "free") list = list.filter((i) => i.price === 0 || i.freeEvent);
     else if (tab === "pass") list = list.filter((i) => i.pass);
     else list = list.filter((i) => i.kind === tab);
