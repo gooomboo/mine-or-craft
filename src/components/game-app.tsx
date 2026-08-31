@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Box, ChevronLeft, Heart, MessageSquare, Pause, Users } from "lucide-react";
 import { BLOCKS, BLOCK_COUNT } from "@/game/blocks";
-import { consumeGrid, matchRecipe, mergeInto, trySmelt } from "@/game/crafting";
+import { consumeGrid, matchRecipe, mergeInto, quickCraft, trySmelt } from "@/game/crafting";
 import { Engine } from "@/game/engine";
+import { GameAudio } from "@/game/audio";
 import { displayName, getDef, ITEMS } from "@/game/items";
 import { loadChunks, loadPlayer, loadSession, newWorldMeta, saveSession, signInAccount, signUpAccount, enterGuest } from "@/game/save";
 import { resolveSkin } from "@/game/skins";
@@ -63,6 +64,42 @@ export function GameApp() {
   );
 }
 
+let menuTune: GameAudio | null = null;
+function getMenuTune() {
+  return (menuTune ??= new GameAudio());
+}
+
+function MenuAmbience() {
+  const vol = useApp((s) => s.settings.volumeMusic);
+  const master = useApp((s) => s.settings.volumeMaster);
+  useEffect(() => {
+    const a = getMenuTune();
+    a.volumes.music = vol;
+    a.volumes.master = master;
+    a.applyVol();
+    const unlock = () => a.unlock();
+    window.addEventListener("pointerdown", unlock);
+    window.addEventListener("keydown", unlock);
+    a.unlock();
+    let last = performance.now();
+    let id = 0;
+    const loop = (now: number) => {
+      const dt = Math.min(0.05, (now - last) / 1000);
+      last = now;
+      a.tickMenu(dt);
+      id = requestAnimationFrame(loop);
+    };
+    id = requestAnimationFrame(loop);
+    return () => {
+      cancelAnimationFrame(id);
+      window.removeEventListener("pointerdown", unlock);
+      window.removeEventListener("keydown", unlock);
+      a.hush();
+    };
+  }, [vol, master]);
+  return null;
+}
+
 function MenuShell() {
   const phase = useApp((s) => s.phase);
   const overlay = useApp((s) => s.overlay);
@@ -70,6 +107,7 @@ function MenuShell() {
   return (
     <div className="relative flex h-full flex-col">
       {phase !== "boot" && <TitlePano />}
+      {phase !== "boot" && <MenuAmbience />}
       <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-b from-black/25 via-transparent to-black/55" />
       <div className="relative z-10 flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-none">
         {phase === "boot" && <BootScreen />}
@@ -195,7 +233,7 @@ function PlayHub() {
   const setPhase = useApp((s) => s.setPhase);
   const worlds = useApp((s) => s.worlds);
   const guest = useApp((s) => s.profile.guest);
-  const last = worlds[0];
+  const last = [...worlds].sort((a, b) => (b.played || 0) - (a.played || 0))[0];
   const saves = loadGames();
   const folders = [...new Set(saves.map((g) => g.folder || "Saves"))];
   return (
@@ -1147,21 +1185,33 @@ function MobileControls() {
   const size = useApp((s) => s.settings.touchSize);
   const scheme = useApp((s) => s.settings.controlScheme);
   const [coarse, setCoarse] = useState(
-    () => typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches,
+    () =>
+      typeof window !== "undefined" &&
+      (window.matchMedia("(pointer: coarse)").matches || window.matchMedia("(max-width: 900px)").matches),
   );
   useEffect(() => {
     const mq = window.matchMedia("(pointer: coarse)");
-    const fn = () => setCoarse(mq.matches);
+    const narrow = window.matchMedia("(max-width: 900px)");
+    const fn = () => setCoarse(mq.matches || narrow.matches || "ontouchstart" in window);
     mq.addEventListener?.("change", fn);
-    return () => mq.removeEventListener?.("change", fn);
+    narrow.addEventListener?.("change", fn);
+    window.addEventListener("touchstart", fn, { once: true });
+    fn();
+    return () => {
+      mq.removeEventListener?.("change", fn);
+      narrow.removeEventListener?.("change", fn);
+    };
   }, []);
   if (scheme === "keys") return null;
   if (scheme === "auto" && !coarse) return null;
 
   const onStick = (e: React.PointerEvent) => {
     e.stopPropagation();
-    const r = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    e.preventDefault();
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+    const el = e.currentTarget as HTMLElement;
     const handler = (ev: PointerEvent) => {
+      const r = el.getBoundingClientRect();
       const dx = (ev.clientX - (r.left + r.width / 2)) / (r.width / 2);
       const dy = (ev.clientY - (r.top + r.height / 2)) / (r.height / 2);
       const x = Math.max(-1, Math.min(1, dx));
@@ -1174,40 +1224,45 @@ function MobileControls() {
       setJoy({ x: 0, y: 0 });
       const input = eng()?.input;
       if (input) input.touchMove = { x: 0, y: 0 };
-      window.removeEventListener("pointermove", handler);
-      window.removeEventListener("pointerup", up);
-      window.removeEventListener("pointercancel", up);
+      el.removeEventListener("pointermove", handler);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", up);
     };
-    window.addEventListener("pointermove", handler);
-    window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
+    el.addEventListener("pointermove", handler);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
     handler(e.nativeEvent);
   };
 
   const onLook = (e: React.PointerEvent) => {
+    e.stopPropagation();
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
     let lx = e.clientX,
       ly = e.clientY;
+    const el = e.currentTarget as HTMLElement;
     const move = (ev: PointerEvent) => {
       const input = eng()?.input;
       if (!input) return;
-      input.touchLook.x += (ev.clientX - lx) * 0.006;
-      input.touchLook.y += (ev.clientY - ly) * 0.006;
+      input.touchLook.x += (ev.clientX - lx) * 0.0075;
+      input.touchLook.y += (ev.clientY - ly) * 0.0075;
       lx = ev.clientX;
       ly = ev.clientY;
     };
     const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      window.removeEventListener("pointercancel", up);
+      el.removeEventListener("pointermove", move);
+      el.removeEventListener("pointerup", up);
+      el.removeEventListener("pointercancel", up);
     };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
-    window.addEventListener("pointercancel", up);
+    el.addEventListener("pointermove", move);
+    el.addEventListener("pointerup", up);
+    el.addEventListener("pointercancel", up);
   };
 
   const hold = (key: "touchJump" | "touchAttack" | "touchUse" | "touchSneak" | "touchSprint" | "touchBlock") => ({
     onPointerDown: (e: React.PointerEvent) => {
       e.stopPropagation();
+      e.preventDefault();
+      (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
       const i = eng()?.input;
       if (i) i[key] = true;
     },
@@ -1240,14 +1295,14 @@ function MobileControls() {
         />
       </div>
       <div className="mc-actions pointer-events-auto">
-        <button type="button" className="mc-btn h-16 w-20 text-base" {...hold("touchJump")}>
+        <button type="button" className="mc-btn h-20 w-24 text-lg" {...hold("touchJump")}>
           Jump
         </button>
         <div className="flex gap-1.5">
-          <button type="button" className="mc-btn h-14 min-w-14 px-3 text-sm" {...hold("touchAttack")}>
+          <button type="button" className="mc-btn h-16 min-w-16 px-3 text-base" {...hold("touchAttack")}>
             Hit
           </button>
-          <button type="button" className="mc-btn h-14 min-w-14 px-3 text-sm" {...hold("touchUse")}>
+          <button type="button" className="mc-btn h-16 min-w-16 px-3 text-base" {...hold("touchUse")}>
             Use
           </button>
         </div>
@@ -1311,11 +1366,14 @@ function PauseMenu() {
           <McBtn onClick={() => setOverlay("advancements")}>Advancements</McBtn>
           <McBtn
             onClick={() => {
-              void getEngine()?.persist();
-              getEngine()?.dispose();
-              engineRef = null;
-              setOverlay("none");
-              setPhase("title");
+              const e = getEngine();
+              void (async () => {
+                if (e) await e.persist();
+                e?.dispose();
+                engineRef = null;
+                setOverlay("none");
+                setPhase("title");
+              })();
             }}
           >
             Save and Quit
@@ -1420,16 +1478,30 @@ function InventoryOverlay({ kind }: { kind: Overlay }) {
   const [craft, setCraft] = useState<Slot[]>(Array.from({ length: 9 }, () => null));
   const [query, setQuery] = useState("");
   const [invTab, setInvTab] = useState<"all" | "blocks" | "items">("all");
+  const [hint, setHint] = useState("");
   const table = kind === "crafting";
   const n = table ? 3 : 2;
   const result = useMemo(() => matchRecipe(craft, table), [craft, table]);
 
-  const clickSlot = (list: "inv" | "craft" | "armor" | "off", i: number) => {
+  const clickSlot = (list: "inv" | "craft" | "armor" | "off", i: number, one = false) => {
     if (!engineRef) return;
     const p = engineRef.player;
     const arr = list === "inv" ? p.inventory : list === "craft" ? craft : list === "armor" ? p.armor : [p.offhand];
     const cur = arr[i] ?? null;
-    if (held && cur && held.id === cur.id) {
+    if (one) {
+      if (held && (!cur || held.id === cur.id)) {
+        const max = getDef(held.id)?.stack ?? 64;
+        if (!cur) arr[i] = { id: held.id, count: 1 };
+        else if (cur.count < max) cur.count += 1;
+        else return;
+        held.count -= 1;
+        setHeld(held.count <= 0 ? null : { ...held });
+      } else if (!held && cur) {
+        setHeld({ id: cur.id, count: 1 });
+        cur.count -= 1;
+        if (cur.count <= 0) arr[i] = null;
+      }
+    } else if (held && cur && held.id === cur.id) {
       const max = getDef(held.id)?.stack ?? 64;
       const add = Math.min(max - cur.count, held.count);
       cur.count += add;
@@ -1438,12 +1510,31 @@ function InventoryOverlay({ kind }: { kind: Overlay }) {
       else setHeld({ ...held });
     } else {
       arr[i] = held;
-      if (list === "off") p.offhand = held;
       setHeld(cur);
     }
+    if (list === "off") p.offhand = arr[0] ?? null;
     if (list === "craft") setCraft([...craft]);
     useApp.getState().setHud({ ...(useApp.getState().hud as NonNullable<typeof hud>), inventory: [...p.inventory] });
   };
+
+  const slotEv = (list: "inv" | "craft" | "armor" | "off", i: number) => ({
+    onClick: () => clickSlot(list, i, false),
+    onContextMenu: (e: React.MouseEvent) => {
+      e.preventDefault();
+      clickSlot(list, i, true);
+    },
+    onPointerDown: (e: React.PointerEvent) => {
+      if (e.pointerType === "mouse") return;
+      const timer = window.setTimeout(() => clickSlot(list, i, true), 420);
+      const clear = () => {
+        window.clearTimeout(timer);
+        window.removeEventListener("pointerup", clear);
+        window.removeEventListener("pointercancel", clear);
+      };
+      window.addEventListener("pointerup", clear);
+      window.addEventListener("pointercancel", clear);
+    },
+  });
 
   const takeResult = () => {
     if (!result || !engineRef) return;
@@ -1494,10 +1585,37 @@ function InventoryOverlay({ kind }: { kind: Overlay }) {
           </button>
         </div>
         {kind !== "furnace" && (
+          <div className="mb-3 grid grid-cols-3 gap-1">
+            {([
+              ["planks", "Log → 4 planks"],
+              ["table", "4 planks → table"],
+              ["sticks", "2 planks → sticks"],
+            ] as const).map(([k, label]) => (
+              <button
+                key={k}
+                type="button"
+                className="mc-btn min-h-11 px-1 text-[11px] leading-tight"
+                onClick={() => {
+                  if (!engineRef) return;
+                  const msg = quickCraft(engineRef.player.inventory, k);
+                  setHint(msg);
+                  engineRef.audio.craft();
+                  useApp.getState().setHud({ ...(useApp.getState().hud as NonNullable<typeof hud>), inventory: [...engineRef.player.inventory] });
+                }}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+        <p className="mb-2 text-[11px] text-muted">
+          Tap a slot to move a whole stack. Long-press or right-click to split one item. {hint}
+        </p>
+        {kind !== "furnace" && (
           <div className="mb-4 flex items-start gap-4">
             <div className={`grid gap-1 ${table ? "grid-cols-3" : "grid-cols-2"}`}>
               {Array.from({ length: n * n }, (_, i) => (
-                <button key={i} type="button" className="mc-slot" onClick={() => clickSlot("craft", i)}>
+                <button key={i} type="button" className="mc-slot" {...slotEv("craft", i)}>
                   {craft[i] && <ItemIcon id={craft[i]!.id} count={craft[i]!.count} />}
                 </button>
               ))}
@@ -1512,24 +1630,24 @@ function InventoryOverlay({ kind }: { kind: Overlay }) {
         <p className="mb-1 text-xs text-muted">Armor / offhand</p>
         <div className="mb-3 flex gap-1">
           {hud.armor.map((s, i) => (
-            <button key={i} type="button" className="mc-slot" onClick={() => clickSlot("armor", i)}>
+            <button key={i} type="button" className="mc-slot" {...slotEv("armor", i)}>
               {s && <ItemIcon id={s.id} count={s.count} />}
             </button>
           ))}
-          <button type="button" className="mc-slot" onClick={() => clickSlot("off", 0)}>
+          <button type="button" className="mc-slot" {...slotEv("off", 0)}>
             {hud.offhand && <ItemIcon id={hud.offhand.id} count={hud.offhand.count} />}
           </button>
         </div>
         <div className="inv-grid">
           {hud.inventory.slice(9).map((s, i) => (
-            <button key={i + 9} type="button" className="mc-slot" onClick={() => clickSlot("inv", i + 9)}>
+            <button key={i + 9} type="button" className="mc-slot" {...slotEv("inv", i + 9)}>
               {s && <ItemIcon id={s.id} count={s.count} />}
             </button>
           ))}
         </div>
         <div className="inv-grid mt-2">
           {hud.inventory.slice(0, 9).map((s, i) => (
-            <button key={i} type="button" className="mc-slot" onClick={() => clickSlot("inv", i)}>
+            <button key={i} type="button" className="mc-slot" {...slotEv("inv", i)}>
               {s && <ItemIcon id={s.id} count={s.count} />}
             </button>
           ))}

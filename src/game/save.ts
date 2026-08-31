@@ -227,18 +227,65 @@ export function saveSettingsRaw(s: string) {
   }
 }
 
+
+const PLAYER_LS = "moc.player.v1.";
+
+function copySlots(s: Slot[] | undefined | null, n: number): Slot[] {
+  const out: Slot[] = Array.from({ length: n }, () => null);
+  if (!Array.isArray(s)) return out;
+  for (let i = 0; i < n; i++) {
+    const it = s[i];
+    if (it && typeof it.id === "number" && it.id > 0) {
+      out[i] = { id: it.id, count: Math.max(1, Number(it.count) || 1) };
+    }
+  }
+  return out;
+}
+
+function snapshotPlayer(data: PlayerSave): PlayerSave {
+  return {
+    ...data,
+    inventory: copySlots(data.inventory, 36),
+    armor: copySlots(data.armor, 4),
+    offhand: data.offhand && data.offhand.id ? { id: data.offhand.id, count: Math.max(1, data.offhand.count || 1) } : null,
+    advancements: Array.isArray(data.advancements) ? [...data.advancements] : [],
+  };
+}
+
+function writePlayerBackup(worldId: string, data: PlayerSave) {
+  try {
+    localStorage.setItem(PLAYER_LS + worldId, JSON.stringify(snapshotPlayer(data)));
+  } catch {
+    /* quota */
+  }
+}
+
+function readPlayerBackup(worldId: string): PlayerSave | null {
+  try {
+    const raw = localStorage.getItem(PLAYER_LS + worldId);
+    if (!raw) return null;
+    const data = JSON.parse(raw) as PlayerSave;
+    if (!data || typeof data.x !== "number") return null;
+    return snapshotPlayer(data);
+  } catch {
+    return null;
+  }
+}
+
 export async function savePlayer(worldId: string, data: PlayerSave) {
+  const snap = snapshotPlayer(data);
+  writePlayerBackup(worldId, snap);
   try {
     const db = await idb();
     await new Promise<void>((res, rej) => {
       const tx = db.transaction("players", "readwrite");
-      tx.objectStore("players").put(data, worldId);
+      tx.objectStore("players").put(snap, worldId);
       tx.oncomplete = () => res();
       tx.onerror = () => rej(tx.error);
     });
     db.close();
   } catch {
-    /* */
+    /* IndexedDB can fail in private Safari — backup already in localStorage */
   }
 }
 
@@ -252,10 +299,18 @@ export async function loadPlayer(worldId: string): Promise<PlayerSave | null> {
       r.onerror = () => rej(r.error);
     });
     db.close();
-    return data;
+    if (data && typeof data.x === "number") {
+      const snap = snapshotPlayer(data);
+      const backup = readPlayerBackup(worldId);
+      const savedCount = (a: PlayerSave | null) => (a?.inventory ?? []).filter(Boolean).length;
+      if (backup && savedCount(backup) > savedCount(snap)) return backup;
+      writePlayerBackup(worldId, snap);
+      return snap;
+    }
   } catch {
-    return null;
+    /* */
   }
+  return readPlayerBackup(worldId);
 }
 
 export async function saveChunks(worldId: string, edits: Map<string, Uint16Array>) {

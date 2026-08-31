@@ -557,7 +557,9 @@ function mix(out: number, count: number, ids: number[], table = false): Recipe {
 
 export const RECIPES: Recipe[] = [
   mix(OAK_PLANKS, 4, [OAK_LOG]),
+  ...LOGS.filter((id) => id !== OAK_LOG).map((id) => mix(OAK_PLANKS, 4, [id])),
   mix(STICK, 4, [OAK_PLANKS, OAK_PLANKS]),
+  mix(CRAFTING_TABLE, 1, [OAK_PLANKS, OAK_PLANKS, OAK_PLANKS, OAK_PLANKS]),
   pick(CRAFTING_TABLE, 1, [OAK_PLANKS, OAK_PLANKS, 0, OAK_PLANKS, OAK_PLANKS, 0, 0, 0, 0]),
   pick(WOOD_PICK, 1, [OAK_PLANKS, OAK_PLANKS, OAK_PLANKS, 0, STICK, 0, 0, STICK, 0], true),
   pick(STONE_PICK, 1, [COBBLE, COBBLE, COBBLE, 0, STICK, 0, 0, STICK, 0], true),

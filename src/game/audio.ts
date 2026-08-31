@@ -5,7 +5,7 @@ export class GameAudio {
   music: GainNode | null = null;
   unlocked = false;
   volumes = { master: 0.8, sfx: 0.9, music: 0.4 };
-  private musicTimer = 0;
+  private musicTimer = 16;
   private osc: OscillatorNode | null = null;
 
   unlock() {
@@ -185,7 +185,7 @@ export class GameAudio {
   tickMusic(dt: number, night: boolean, nether: boolean, end: boolean) {
     this.musicTimer += dt;
     if (!this.ctx || !this.music) return;
-    if (this.musicTimer > 16) {
+    if (this.musicTimer > 14) {
       this.musicTimer = 0;
       const base = end ? 46 : nether ? 52 : night ? 60 : 74;
       const third = base * (nether ? 1.26 : 1.25);
@@ -206,6 +206,17 @@ export class GameAudio {
         o.stop(now + 11.2);
       }
     }
+  }
+
+  tickMenu(dt: number) {
+    this.applyVol();
+    this.tickMusic(dt, false, false, false);
+  }
+
+  hush() {
+    if (!this.ctx || !this.music) return;
+    const t = this.ctx.currentTime;
+    this.music.gain.setTargetAtTime(0.0001, t, 0.08);
   }
 
   playUrl(url: string) {

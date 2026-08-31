@@ -446,10 +446,10 @@
 .mc-look-pad {
   display: block;
   position: absolute;
-  top: 4.6rem;
-  left: 7.4rem;
-  right: 7.6rem;
-  bottom: calc(10.2rem + env(safe-area-inset-bottom));
+  top: 5.6rem;
+  left: 8.2rem;
+  right: 8.4rem;
+  bottom: calc(11.6rem + env(safe-area-inset-bottom));
   z-index: 1;
   pointer-events: auto;
   touch-action: none;

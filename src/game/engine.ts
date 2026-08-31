@@ -138,6 +138,7 @@ export class Engine {
   labSwim = false;
   studio = { fly: false, god: false, fullbright: false, speed: false, freeze: false, hitboxes: false };
   saveTimer = 0;
+  ready = false;
   afk = 0;
   wraith: Mob | null = null;
   dragon: Mob | null = null;
@@ -446,10 +447,14 @@ export class Engine {
       this.player.hunger = save.hunger;
       this.player.xp = save.xp;
       this.player.xpLevel = save.xpLevel;
-      this.player.inventory = save.inventory;
-      this.player.armor = save.armor;
-      this.player.offhand = save.offhand;
-      this.player.hotbar = save.hotbar;
+      this.player.inventory = Array.isArray(save.inventory)
+        ? save.inventory.map((s) => (s && s.id ? { id: s.id, count: Math.max(1, s.count || 1) } : null)).concat(Array.from({ length: 36 }, () => null)).slice(0, 36)
+        : Array.from({ length: 36 }, () => null);
+      this.player.armor = Array.isArray(save.armor)
+        ? save.armor.map((s) => (s && s.id ? { id: s.id, count: 1 } : null)).concat([null, null, null, null]).slice(0, 4)
+        : [null, null, null, null];
+      this.player.offhand = save.offhand && save.offhand.id ? { id: save.offhand.id, count: save.offhand.count || 1 } : null;
+      this.player.hotbar = Math.max(0, Math.min(8, save.hotbar ?? 0));
       this.player.dim = save.dim;
       this.player.flying = save.flying && this.meta.mode === "creative";
       this.worldTime = save.time;
@@ -522,8 +527,16 @@ export class Engine {
     this.runScripts("join");
     this.chat.push("Welcome to Mine or Craft.");
     if (this.meta.arena) this.chat.push("Arena: respawn at your pad. PvP on.");
-    else this.chat.push("Punch a tree. Craft a bench. Survive the night.");
+    else this.chat.push("Punch a log. Open bag → Quick Craft (Log→Planks, 4 Planks→Table). Long-press a stack to split one.");
+    this.ready = true;
+    document.addEventListener("visibilitychange", this.onHideSave);
+    window.addEventListener("pagehide", this.onHideSave);
+    void this.persist();
   }
+
+  private onHideSave = () => {
+    if (this.ready) void this.persist();
+  };
 
   giveDuelKit(keepIfFilled: boolean) {
     this.giveArenaKit(keepIfFilled);
@@ -632,7 +645,7 @@ export class Engine {
         this.meta.author = mod.author;
         this.meta.labGame = true;
       }
-      if (Array.isArray(mod.kit) && mod.kit.length) {
+      if (Array.isArray(mod.kit) && mod.kit.length && !this.player.inventory.some((s) => s)) {
         this.player.inventory = Array.from({ length: 36 }, () => null);
         for (const s of mod.kit) {
           if (s && s.id > 0) this.player.give(s.id, Math.max(1, s.count || 1));
@@ -3006,6 +3019,7 @@ export class Engine {
   }
 
   async persist() {
+    if (!this.ready) return;
     const save: PlayerSave = {
       x: this.player.x,
       y: this.player.y,
@@ -3028,6 +3042,12 @@ export class Engine {
       killedStorm: this.killedStorm,
       advancements: useApp.getState().profile.unlocked,
     };
+    this.meta.played = Date.now();
+    try {
+      useApp.getState().upsertWorld(this.meta, { select: false });
+    } catch {
+      /* store may be gone during teardown */
+    }
     await savePlayer(this.meta.id, save);
     await saveChunks(this.meta.id, this.world.edits);
   }
@@ -3142,7 +3162,10 @@ export class Engine {
     cancelAnimationFrame(this.raf);
     this.input.detach();
     window.removeEventListener("resize", this.onResize);
-    void this.persist();
+    document.removeEventListener("visibilitychange", this.onHideSave);
+    window.removeEventListener("pagehide", this.onHideSave);
+    if (this.ready) void this.persist();
+    this.ready = false;
     for (const m of this.mobs) disposeMob(m, this.scene);
     this.world.dispose();
     this.atlas.texture.dispose();

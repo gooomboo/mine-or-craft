@@ -1,4 +1,5 @@
-import { RECIPES, SMELT, getDef, maxStack } from "./items";
+import { BLOCKS, CRAFTING_TABLE, OAK_PLANKS } from "./blocks";
+import { RECIPES, SMELT, STICK, getDef, maxStack } from "./items";
 import type { Recipe, Slot } from "./types";
 
 function counts(slots: Slot[]): Map<number, number> {
@@ -84,3 +85,36 @@ export function mergeInto(inv: Slot[], item: Slot): boolean {
 }
 
 void getDef;
+
+export function isLogItem(id: number) {
+  const k = BLOCKS[id]?.key ?? "";
+  return k.includes("log") || k.includes("_stem");
+}
+
+export function quickCraft(inv: Slot[], kind: "planks" | "table" | "sticks"): string {
+  const take = (pred: (id: number) => boolean, n: number) => {
+    let need = n;
+    for (const s of inv) {
+      if (!s || !pred(s.id)) continue;
+      const use = Math.min(need, s.count);
+      s.count -= use;
+      need -= use;
+      if (need <= 0) break;
+    }
+    for (let i = 0; i < inv.length; i++) if (inv[i] && inv[i]!.count <= 0) inv[i] = null;
+    return need <= 0;
+  };
+  if (kind === "planks") {
+    if (!take(isLogItem, 1)) return "Need a log in your bag.";
+    mergeInto(inv, { id: OAK_PLANKS, count: 4 });
+    return "Crafted 4 planks.";
+  }
+  if (kind === "sticks") {
+    if (!take((id) => id === OAK_PLANKS, 2)) return "Need 2 planks.";
+    mergeInto(inv, { id: STICK, count: 4 });
+    return "Crafted 4 sticks.";
+  }
+  if (!take((id) => id === OAK_PLANKS, 4)) return "Need 4 planks.";
+  mergeInto(inv, { id: CRAFTING_TABLE, count: 1 });
+  return "Crafted a crafting table. Place it, then Use it for 3x3 recipes.";
+}
