@@ -1,7 +1,16 @@
 {
-  // Cloudflare Pages ONLY. Do not point this at Vercel / Nitro output.
-  // Do not set DATABASE_URL. Signaling is functions/api/rtc.js (memory).
+  // Cloudflare Workers + static assets. Matches the dashboard form:
+  //   Project name:    mine-or-craft
+  //   Build command:   npm run build:cf
+  //   Deploy command:  npx wrangler deploy
+  // Do not set DATABASE_URL. Do not use Pages-only pages_build_output_dir.
   "name": "mine-or-craft",
+  "main": "workers/index.js",
   "compatibility_date": "2026-08-30",
-  "pages_build_output_dir": "./dist/client"
+  "assets": {
+    "directory": "./dist/client",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  }
 }
